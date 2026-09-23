@@ -6,6 +6,11 @@ from soil_mir.config import (
     SpectralConfig,
     ValidationConfig,
 )
+from soil_mir.services.profiles import (
+    list_profiles,
+    load_profile,
+    save_profile,
+)
 
 st.set_page_config(
     page_title="Configure | Soil MIR PLSR",
@@ -37,6 +42,75 @@ default_properties = [
     )
     if prop in available_properties
 ] or available_properties[:1]
+
+PROFILE_SESSION_KEYS = {
+    "soil_mir_selected_properties",
+    "soil_mir_wn_range",
+    "soil_mir_exclude_co2",
+    "soil_mir_max_rank",
+    "soil_mir_validation_methods",
+    "soil_mir_region_windows",
+    "soil_mir_tolerance",
+    "soil_mir_sg_window",
+    "soil_mir_sg_polyorder",
+    "soil_mir_random_seed",
+    "soil_mir_internal_cv_folds",
+    "soil_mir_outer_cv_folds",
+    "soil_mir_n_repeats",
+    "soil_mir_validation_fraction",
+    "soil_mir_ks_representation",
+    "soil_mir_ks_pca_variance",
+}
+
+output_dir = st.session_state.get(
+    "soil_mir_output_dir",
+    "",
+)
+if output_dir:
+    with st.expander("Saved configuration profiles"):
+        profiles = list_profiles(output_dir)
+        if profiles:
+            selected_profile = st.selectbox(
+                "Profile",
+                list(profiles),
+            )
+            if st.button(
+                "Load selected profile",
+                key="load_configuration_profile",
+            ):
+                try:
+                    loaded = load_profile(
+                        profiles[selected_profile]
+                    )
+                except Exception as exc:
+                    st.error(str(exc))
+                else:
+                    allowed = {
+                        key: value
+                        for key, value in loaded.items()
+                        if key in PROFILE_SESSION_KEYS
+                    }
+                    if "soil_mir_selected_properties" in allowed:
+                        allowed[
+                            "soil_mir_selected_properties"
+                        ] = [
+                            prop
+                            for prop in allowed[
+                                "soil_mir_selected_properties"
+                            ]
+                            if prop in available_properties
+                        ]
+                    if "soil_mir_wn_range" in allowed:
+                        allowed["soil_mir_wn_range"] = tuple(
+                            allowed["soil_mir_wn_range"]
+                        )
+                    st.session_state.update(allowed)
+                    st.rerun()
+        else:
+            st.caption(
+                "No saved profiles yet. Validate settings below, "
+                "then save the configuration as a profile."
+            )
 
 selected_properties = st.multiselect(
     "Properties",
@@ -264,107 +338,90 @@ with st.expander("Advanced spectral settings"):
         step=1,
     )
 
+current_values = {
+    "soil_mir_selected_properties": selected_properties,
+    "soil_mir_wn_range": tuple(wn_range),
+    "soil_mir_exclude_co2": exclude_co2,
+    "soil_mir_max_rank": int(max_rank),
+    "soil_mir_validation_methods": validation_methods,
+    "soil_mir_region_windows": int(region_windows),
+    "soil_mir_tolerance": float(tolerance),
+    "soil_mir_sg_window": int(sg_window),
+    "soil_mir_sg_polyorder": int(sg_polyorder),
+    "soil_mir_random_seed": int(random_seed),
+    "soil_mir_internal_cv_folds": int(internal_cv_folds),
+    "soil_mir_outer_cv_folds": int(outer_cv_folds),
+    "soil_mir_n_repeats": int(n_repeats),
+    "soil_mir_validation_fraction": float(validation_fraction),
+    "soil_mir_ks_representation": ks_representation,
+    "soil_mir_ks_pca_variance": float(ks_pca_variance),
+}
+
+
+def validate_current_configuration():
+    spectral = SpectralConfig(
+        wn_min=float(wn_range[0]),
+        wn_max=float(wn_range[1]),
+        exclude_co2=exclude_co2,
+        sg_window=int(sg_window),
+        sg_polyorder=int(sg_polyorder),
+    )
+    validation = ValidationConfig(
+        methods=tuple(validation_methods),
+        max_rank=int(max_rank),
+        region_search_n_windows=int(region_windows),
+        rmsecv_tolerance_pct=float(tolerance),
+        random_seed=int(random_seed),
+    )
+    spectral.validate()
+    validation.validate()
+
+    if not selected_properties:
+        raise ValueError("Select at least one property.")
+    if not validation_methods:
+        raise ValueError("Select at least one validation method.")
+    if not 0 < float(validation_fraction) < 1:
+        raise ValueError(
+            "Holdout fraction must be between 0 and 1."
+        )
+
+
 if st.button(
     "Validate and save configuration",
     type="primary",
 ):
     try:
-        spectral = SpectralConfig(
-            wn_min=float(wn_range[0]),
-            wn_max=float(wn_range[1]),
-            exclude_co2=exclude_co2,
-            sg_window=int(sg_window),
-            sg_polyorder=int(sg_polyorder),
-        )
-        validation = ValidationConfig(
-            methods=tuple(
-                validation_methods
-            ),
-            max_rank=int(max_rank),
-            region_search_n_windows=int(
-                region_windows
-            ),
-            rmsecv_tolerance_pct=float(
-                tolerance
-            ),
-            random_seed=int(
-                random_seed
-            ),
-        )
-        spectral.validate()
-        validation.validate()
-
-        if not selected_properties:
-            raise ValueError(
-                "Select at least one property."
-            )
-        if not validation_methods:
-            raise ValueError(
-                "Select at least one validation method."
-            )
-        if not 0 < float(
-            validation_fraction
-        ) < 1:
-            raise ValueError(
-                "Holdout fraction must be between 0 and 1."
-            )
+        validate_current_configuration()
     except Exception as exc:
         st.error(str(exc))
     else:
-        values = {
-            "soil_mir_selected_properties": (
-                selected_properties
-            ),
-            "soil_mir_wn_range": tuple(
-                wn_range
-            ),
-            "soil_mir_exclude_co2": (
-                exclude_co2
-            ),
-            "soil_mir_max_rank": int(
-                max_rank
-            ),
-            "soil_mir_validation_methods": (
-                validation_methods
-            ),
-            "soil_mir_region_windows": int(
-                region_windows
-            ),
-            "soil_mir_tolerance": float(
-                tolerance
-            ),
-            "soil_mir_sg_window": int(
-                sg_window
-            ),
-            "soil_mir_sg_polyorder": int(
-                sg_polyorder
-            ),
-            "soil_mir_random_seed": int(
-                random_seed
-            ),
-            "soil_mir_internal_cv_folds": int(
-                internal_cv_folds
-            ),
-            "soil_mir_outer_cv_folds": int(
-                outer_cv_folds
-            ),
-            "soil_mir_n_repeats": int(
-                n_repeats
-            ),
-            "soil_mir_validation_fraction": float(
-                validation_fraction
-            ),
-            "soil_mir_ks_representation": (
-                ks_representation
-            ),
-            "soil_mir_ks_pca_variance": float(
-                ks_pca_variance
-            ),
-        }
-        st.session_state.update(
-            values
-        )
+        st.session_state.update(current_values)
         st.success(
-            "Configuration is valid and saved "
-            "for this session."
+            "Configuration is valid and saved for this session."
         )
+
+if output_dir:
+    st.subheader("Save profile")
+    profile_name = st.text_input(
+        "Profile name",
+        value="",
+        placeholder="e.g. STC-STN nested kfold",
+    )
+    if st.button(
+        "Save current settings as profile",
+        disabled=not profile_name.strip(),
+    ):
+        try:
+            validate_current_configuration()
+            path = save_profile(
+                output_dir,
+                profile_name,
+                current_values,
+            )
+        except Exception as exc:
+            st.error(str(exc))
+        else:
+            st.session_state.update(current_values)
+            st.success(
+                f"Saved configuration profile: {path.name}"
+            )
