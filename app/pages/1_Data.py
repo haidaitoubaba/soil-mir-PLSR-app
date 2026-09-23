@@ -220,6 +220,18 @@ if (
                         summary.unique_samples
                     ),
                     "Groups": summary.groups,
+                    "Missing refs": (
+                        summary.missing_reference_values
+                    ),
+                    "Zero refs": (
+                        summary.zero_reference_values
+                    ),
+                    "Negative refs": (
+                        summary.negative_reference_values
+                    ),
+                    "Duplicate rows": (
+                        summary.duplicate_rows
+                    ),
                     "Reference min": (
                         summary.reference_min
                     ),
