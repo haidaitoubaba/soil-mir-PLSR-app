@@ -106,139 +106,20 @@ if st.button(
     progress = st.progress(0.0)
     progress_note = st.empty()
 
-    for property_sheet in properties:
-        with st.status(
-            f"Loading {property_sheet}",
-            expanded=True,
-        ) as status:
-            dataset = load_calibration_dataset(
-                st.session_state[
-                    "soil_mir_spectra_dir"
-                ],
-                st.session_state[
-                    "soil_mir_reference_excel"
-                ],
-                property_sheet,
-                wn_min=float(
+    try:
+        for property_sheet in properties:
+            with st.status(
+                f"Loading {property_sheet}",
+                expanded=True,
+            ) as status:
+                dataset = load_calibration_dataset(
                     st.session_state[
-                        "soil_mir_wn_range"
-                    ][0]
-                ),
-                wn_max=float(
+                        "soil_mir_spectra_dir"
+                    ],
                     st.session_state[
-                        "soil_mir_wn_range"
-                    ][1]
-                ),
-                fallback_exclude_co2=bool(
-                    st.session_state.get(
-                        "soil_mir_exclude_co2",
-                        False,
-                    )
-                ),
-                cache_root=cache_root,
-            )
-            st.write(
-                f"Loaded {dataset.rows:,} spectra from "
-                f"{dataset.unique_samples:,} samples."
-            )
-            st.write(
-                f"Transform: {dataset.transform}; "
-                f"CO₂ excluded: {dataset.exclude_co2}"
-            )
-            st.write(
-                "OPUS cache: "
-                f"{dataset.cache_hits} reused, "
-                f"{dataset.cache_misses} parsed."
-            )
-
-            for method in methods:
-                st.write(
-                    f"Running {property_sheet} / {method}..."
-                )
-                def method_progress(step, step_total, message):
-                    within = (
-                        step / step_total
-                        if step_total
-                        else 0.0
-                    )
-                    progress.progress(
-                        min(
-                            (completed + within) / total,
-                            1.0,
-                        )
-                    )
-                    progress_note.caption(
-                        f"{property_sheet} / {method}: {message}"
-                    )
-
-                result = run_validation_analysis(
-                    dataset,
-                    method=method,
-                    max_rank=int(
-                        st.session_state[
-                            "soil_mir_max_rank"
-                        ]
-                    ),
-                    region_search_n_windows=int(
-                        st.session_state[
-                            "soil_mir_region_windows"
-                        ]
-                    ),
-                    rmsecv_tolerance_pct=float(
-                        st.session_state[
-                            "soil_mir_tolerance"
-                        ]
-                    ),
-                    sg_window=int(
-                        st.session_state[
-                            "soil_mir_sg_window"
-                        ]
-                    ),
-                    sg_polyorder=int(
-                        st.session_state[
-                            "soil_mir_sg_polyorder"
-                        ]
-                    ),
-                    random_seed=int(
-                        st.session_state[
-                            "soil_mir_random_seed"
-                        ]
-                    ),
-                    internal_cv_folds=int(
-                        st.session_state[
-                            "soil_mir_internal_cv_folds"
-                        ]
-                    ),
-                    outer_cv_folds=int(
-                        st.session_state.get(
-                            "soil_mir_outer_cv_folds",
-                            5,
-                        )
-                    ),
-                    n_repeats=int(
-                        st.session_state.get(
-                            "soil_mir_n_repeats",
-                            30,
-                        )
-                    ),
-                    validation_fraction=float(
-                        st.session_state.get(
-                            "soil_mir_validation_fraction",
-                            0.20,
-                        )
-                    ),
-                    ks_representation=str(
-                        st.session_state.get(
-                            "soil_mir_ks_representation",
-                            "raw",
-                        )
-                    ),
-                    ks_pca_variance=float(
-                        st.session_state.get(
-                            "soil_mir_ks_pca_variance",
-                            0.99,
-                        )
-                    ),
+                        "soil_mir_reference_excel"
+                    ],
+                    property_sheet,
                     wn_min=float(
                         st.session_state[
                             "soil_mir_wn_range"
@@ -249,32 +130,162 @@ if st.button(
                             "soil_mir_wn_range"
                         ][1]
                     ),
-                    progress_callback=method_progress,
+                    fallback_exclude_co2=bool(
+                        st.session_state.get(
+                            "soil_mir_exclude_co2",
+                            False,
+                        )
+                    ),
+                    cache_root=cache_root,
                 )
-                result["artifacts"] = (
-                    export_validation_result(
-                        result,
-                        run_dir,
-                    )
+                st.write(
+                    f"Loaded {dataset.rows:,} spectra from "
+                    f"{dataset.unique_samples:,} samples."
                 )
-                record_run_result(
-                    run_dir,
-                    result,
-                    result["artifacts"],
+                st.write(
+                    f"Transform: {dataset.transform}; "
+                    f"CO₂ excluded: {dataset.exclude_co2}"
                 )
-                results[
-                    f"{property_sheet}::{method}"
-                ] = result
-                completed += 1
-                progress.progress(
-                    completed / total
+                st.write(
+                    "OPUS cache: "
+                    f"{dataset.cache_hits} reused, "
+                    f"{dataset.cache_misses} parsed."
                 )
 
-            status.update(
-                label=f"{property_sheet} complete",
-                state="complete",
-                expanded=False,
-            )
+                for method in methods:
+                    st.write(
+                        f"Running {property_sheet} / {method}..."
+                    )
+                    def method_progress(step, step_total, message):
+                        within = (
+                            step / step_total
+                            if step_total
+                            else 0.0
+                        )
+                        progress.progress(
+                            min(
+                                (completed + within) / total,
+                                1.0,
+                            )
+                        )
+                        progress_note.caption(
+                            f"{property_sheet} / {method}: {message}"
+                        )
+
+                    result = run_validation_analysis(
+                        dataset,
+                        method=method,
+                        max_rank=int(
+                            st.session_state[
+                                "soil_mir_max_rank"
+                            ]
+                        ),
+                        region_search_n_windows=int(
+                            st.session_state[
+                                "soil_mir_region_windows"
+                            ]
+                        ),
+                        rmsecv_tolerance_pct=float(
+                            st.session_state[
+                                "soil_mir_tolerance"
+                            ]
+                        ),
+                        sg_window=int(
+                            st.session_state[
+                                "soil_mir_sg_window"
+                            ]
+                        ),
+                        sg_polyorder=int(
+                            st.session_state[
+                                "soil_mir_sg_polyorder"
+                            ]
+                        ),
+                        random_seed=int(
+                            st.session_state[
+                                "soil_mir_random_seed"
+                            ]
+                        ),
+                        internal_cv_folds=int(
+                            st.session_state[
+                                "soil_mir_internal_cv_folds"
+                            ]
+                        ),
+                        outer_cv_folds=int(
+                            st.session_state.get(
+                                "soil_mir_outer_cv_folds",
+                                5,
+                            )
+                        ),
+                        n_repeats=int(
+                            st.session_state.get(
+                                "soil_mir_n_repeats",
+                                30,
+                            )
+                        ),
+                        validation_fraction=float(
+                            st.session_state.get(
+                                "soil_mir_validation_fraction",
+                                0.20,
+                            )
+                        ),
+                        ks_representation=str(
+                            st.session_state.get(
+                                "soil_mir_ks_representation",
+                                "raw",
+                            )
+                        ),
+                        ks_pca_variance=float(
+                            st.session_state.get(
+                                "soil_mir_ks_pca_variance",
+                                0.99,
+                            )
+                        ),
+                        wn_min=float(
+                            st.session_state[
+                                "soil_mir_wn_range"
+                            ][0]
+                        ),
+                        wn_max=float(
+                            st.session_state[
+                                "soil_mir_wn_range"
+                            ][1]
+                        ),
+                        progress_callback=method_progress,
+                    )
+                    result["artifacts"] = (
+                        export_validation_result(
+                            result,
+                            run_dir,
+                        )
+                    )
+                    record_run_result(
+                        run_dir,
+                        result,
+                        result["artifacts"],
+                    )
+                    results[
+                        f"{property_sheet}::{method}"
+                    ] = result
+                    completed += 1
+                    progress.progress(
+                        completed / total
+                    )
+
+                status.update(
+                    label=f"{property_sheet} complete",
+                    state="complete",
+                    expanded=False,
+                )
+
+    except Exception as exc:
+        finalize_run_manifest(
+            run_dir,
+            status="failed",
+            error=str(exc),
+        )
+        progress_note.caption("Run failed. Completed analyses were preserved.")
+        st.exception(exc)
+        st.stop()
 
     finalize_run_manifest(
         run_dir,
