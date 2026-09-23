@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 from soil_mir.reporting import (
     create_run_directory,
     export_validation_result,
+    finalize_run_manifest,
+    initialize_run_manifest,
+    record_run_result,
 )
 from soil_mir.services.calibration import (
     load_calibration_dataset,
@@ -84,10 +89,22 @@ if st.button(
             "soil_mir_output_dir"
         ]
     )
+    initialize_run_manifest(
+        run_dir,
+        properties=list(properties),
+        methods=list(methods),
+        spectra_dir=st.session_state["soil_mir_spectra_dir"],
+        reference_excel=st.session_state["soil_mir_reference_excel"],
+    )
+    cache_root = (
+        Path(st.session_state["soil_mir_output_dir"])
+        / ".soil_mir_cache"
+    )
     results = {}
     total = len(properties) * len(methods)
     completed = 0
     progress = st.progress(0.0)
+    progress_note = st.empty()
 
     for property_sheet in properties:
         with st.status(
@@ -118,6 +135,7 @@ if st.button(
                         False,
                     )
                 ),
+                cache_root=cache_root,
             )
             st.write(
                 f"Loaded {dataset.rows:,} spectra from "
@@ -127,11 +145,32 @@ if st.button(
                 f"Transform: {dataset.transform}; "
                 f"CO₂ excluded: {dataset.exclude_co2}"
             )
+            st.write(
+                "OPUS cache: "
+                f"{dataset.cache_hits} reused, "
+                f"{dataset.cache_misses} parsed."
+            )
 
             for method in methods:
                 st.write(
                     f"Running {property_sheet} / {method}..."
                 )
+                def method_progress(step, step_total, message):
+                    within = (
+                        step / step_total
+                        if step_total
+                        else 0.0
+                    )
+                    progress.progress(
+                        min(
+                            (completed + within) / total,
+                            1.0,
+                        )
+                    )
+                    progress_note.caption(
+                        f"{property_sheet} / {method}: {message}"
+                    )
+
                 result = run_validation_analysis(
                     dataset,
                     method=method,
@@ -210,12 +249,18 @@ if st.button(
                             "soil_mir_wn_range"
                         ][1]
                     ),
+                    progress_callback=method_progress,
                 )
                 result["artifacts"] = (
                     export_validation_result(
                         result,
                         run_dir,
                     )
+                )
+                record_run_result(
+                    run_dir,
+                    result,
+                    result["artifacts"],
                 )
                 results[
                     f"{property_sheet}::{method}"
@@ -230,6 +275,13 @@ if st.button(
                 state="complete",
                 expanded=False,
             )
+
+    finalize_run_manifest(
+        run_dir,
+        status="completed",
+    )
+    progress.progress(1.0)
+    progress_note.caption("Run complete.")
 
     st.session_state[
         "soil_mir_results"
