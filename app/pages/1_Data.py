@@ -14,6 +14,9 @@ from soil_mir.io.reference import (
     read_property_sheet,
     summarize_property,
 )
+from soil_mir.services.local_paths import (
+    detect_local_data_layout,
+)
 
 st.set_page_config(
     page_title="Data | Soil MIR PLSR",
@@ -25,27 +28,52 @@ st.caption(
     "Inspect local spectra and reference data before modelling."
 )
 
-spectra_text = st.text_input(
-    "OPUS spectra directory",
-    value=st.session_state.get(
-        "soil_mir_spectra_dir",
-        "",
-    ),
-    placeholder="/path/to/data/spectra/Complete",
-)
-reference_text = st.text_input(
-    "Reference workbook",
-    value=st.session_state.get(
-        "soil_mir_reference_excel",
-        "",
-    ),
-    placeholder="/path/to/reference_value.xlsx",
-)
+detected_layout = None
+if not (
+    st.session_state.get("soil_mir_spectra_dir")
+    or st.session_state.get("soil_mir_reference_excel")
+):
+    detected_layout = detect_local_data_layout()
 
+default_spectra = st.session_state.get(
+    "soil_mir_spectra_dir",
+    "",
+)
+default_reference = st.session_state.get(
+    "soil_mir_reference_excel",
+    "",
+)
 default_output = st.session_state.get(
     "soil_mir_output_dir",
     "",
 )
+
+if detected_layout is not None:
+    default_spectra = default_spectra or str(
+        detected_layout.spectra_dir
+    )
+    default_reference = default_reference or str(
+        detected_layout.reference_excel
+    )
+    default_output = default_output or str(
+        detected_layout.output_dir
+    )
+    st.success(
+        "Detected local Soil MIR data layout from "
+        f"{detected_layout.source}."
+    )
+
+spectra_text = st.text_input(
+    "OPUS spectra directory",
+    value=default_spectra,
+    placeholder="/path/to/data/spectra/Complete",
+)
+reference_text = st.text_input(
+    "Reference workbook",
+    value=default_reference,
+    placeholder="/path/to/reference_value.xlsx",
+)
+
 if not default_output and reference_text:
     default_output = str(
         Path(reference_text)
