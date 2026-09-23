@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import joblib
@@ -60,6 +63,97 @@ def public_config(cfg: dict) -> dict:
     }
 
 
+def reproducibility_metadata() -> dict:
+    try:
+        software_version = version("soil-mir-app")
+    except PackageNotFoundError:
+        software_version = "unknown"
+
+    git_commit = (
+        os.environ.get("SOIL_MIR_GIT_COMMIT")
+        or os.environ.get("CI_COMMIT_SHA")
+        or ""
+    )
+    if not git_commit:
+        try:
+            completed = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=Path(__file__).resolve().parents[2],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            git_commit = "unknown"
+        else:
+            git_commit = completed.stdout.strip() or "unknown"
+
+    return {
+        "software_name": "soil-mir-app",
+        "software_version": software_version,
+        "git_commit": git_commit,
+        "created_at": _utc_now(),
+    }
+
+
+def _export_validation_plots(
+    result: dict,
+    pdf_path: Path,
+) -> None:
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    predictions = result["predictions"]
+    measured = predictions["Measured"].to_numpy(dtype=float)
+    predicted = predictions["Predicted"].to_numpy(dtype=float)
+    residual = measured - predicted
+    title = f"{result['property']} — {result['method']}"
+
+    with PdfPages(pdf_path) as pdf:
+        fig, ax = plt.subplots(figsize=(7, 6))
+        ax.scatter(measured, predicted, alpha=0.7)
+        low = float(min(measured.min(), predicted.min()))
+        high = float(max(measured.max(), predicted.max()))
+        pad = max((high - low) * 0.05, 1e-6)
+        ax.plot(
+            [low - pad, high + pad],
+            [low - pad, high + pad],
+            linestyle="--",
+        )
+        ax.set_xlabel("Measured")
+        ax.set_ylabel("Validation predicted")
+        ax.set_title(f"{title} — measured vs predicted")
+        ax.grid(alpha=0.2)
+        fig.tight_layout()
+        pdf.savefig(fig)
+        plt.close(fig)
+
+        fig, ax = plt.subplots(figsize=(7, 6))
+        ax.scatter(predicted, residual, alpha=0.7)
+        ax.axhline(0, linestyle="--")
+        ax.set_xlabel("Validation predicted")
+        ax.set_ylabel("Residual (measured - predicted)")
+        ax.set_title(f"{title} — residuals")
+        ax.grid(alpha=0.2)
+        fig.tight_layout()
+        pdf.savefig(fig)
+        plt.close(fig)
+
+        fig, ax = plt.subplots(figsize=(7, 6))
+        ax.hist(
+            residual,
+            bins=min(12, max(len(residual), 1)),
+        )
+        ax.set_xlabel("Residual (measured - predicted)")
+        ax.set_ylabel("Validation predictions")
+        ax.set_title(f"{title} — residual distribution")
+        ax.grid(alpha=0.2)
+        fig.tight_layout()
+        pdf.savefig(fig)
+        plt.close(fig)
+
+
 def export_validation_result(
     result: dict,
     run_dir: str | Path,
@@ -78,13 +172,37 @@ def export_validation_result(
     )
     model_path = target / f"{stem}_Final_Model.joblib"
     workbook_path = target / f"{stem}_Results.xlsx"
+    plots_path = target / f"{stem}_Plots.pdf"
+    metadata_path = target / "Model_Metadata.json"
     config_path = target / "Resolved_Config.json"
     split_path = target / "Split_Info.json"
 
+    metadata = reproducibility_metadata()
+    result["final_model"].update(metadata)
     joblib.dump(
         result["final_model"],
         model_path,
         compress=3,
+    )
+
+    final_settings = result["final_settings"]
+    write_json(
+        metadata_path,
+        {
+            **metadata,
+            "property": result["property"],
+            "units": result["final_model"].get("units", ""),
+            "validation_method": result["method"],
+            "training_samples": result["final_model"].get(
+                "training_sample_count"
+            ),
+            "training_spectra": result["final_model"].get(
+                "training_spectrum_count"
+            ),
+            "preprocessing": final_settings["Preprocessing"],
+            "region": final_settings["Region"],
+            "rank": int(final_settings["Rank"]),
+        },
     )
     write_json(
         config_path,
@@ -99,7 +217,7 @@ def export_validation_result(
         result["config"].get("_region_windows", [])
     )
     final_selection = pd.DataFrame(
-        [result["final_settings"]]
+        [final_settings]
     )
     settings = pd.DataFrame(
         [
@@ -160,13 +278,56 @@ def export_validation_result(
             index=False,
         )
 
+    _export_validation_plots(
+        result,
+        plots_path,
+    )
+
     return {
         "directory": str(target),
         "model": str(model_path),
         "workbook": str(workbook_path),
+        "plots_pdf": str(plots_path),
+        "metadata": str(metadata_path),
         "config": str(config_path),
         "split_info": str(split_path),
     }
+
+
+def export_validation_comparison(
+    results: dict[str, dict],
+    run_dir: str | Path,
+) -> str:
+    rows = []
+    for result in results.values():
+        summary = result["summary"].set_index("Metric")
+        settings = result["final_settings"]
+        rows.append(
+            {
+                "Property": result["property"],
+                "Method": result["method"],
+                "R2": float(summary.loc["R2", "Value"]),
+                "RMSE": float(summary.loc["RMSE", "Value"]),
+                "RPIQ": float(summary.loc["RPIQ", "Value"]),
+                "Bias": float(summary.loc["Bias", "Value"]),
+                "Final Preprocessing": settings["Preprocessing"],
+                "Final Region": settings["Region"],
+                "Final Rank": int(settings["Rank"]),
+                "Validation Samples": int(
+                    result["unique_validation_samples"]
+                ),
+                "Elapsed Seconds": float(
+                    result["elapsed_seconds"]
+                ),
+            }
+        )
+
+    path = Path(run_dir) / "Validation_Comparison.xlsx"
+    pd.DataFrame(rows).to_excel(
+        path,
+        index=False,
+    )
+    return str(path)
 
 
 RUN_MANIFEST_NAME = "Run_Manifest.json"
