@@ -38,4 +38,4 @@ addopts = "-ra"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F"]
