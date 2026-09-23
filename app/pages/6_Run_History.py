@@ -58,6 +58,7 @@ for manifest in history:
                 manifest.get("methods", [])
             ),
             "Completed analyses": len(results),
+            "Failed analyses": len(manifest.get("failures", [])),
             "Directory": manifest.get("run_dir", ""),
         }
     )
@@ -145,6 +146,15 @@ for manifest in history:
         if result_rows:
             st.dataframe(
                 pd.DataFrame(result_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        failures = manifest.get("failures", [])
+        if failures:
+            st.subheader("Failed analyses")
+            st.dataframe(
+                pd.DataFrame(failures),
                 use_container_width=True,
                 hide_index=True,
             )
