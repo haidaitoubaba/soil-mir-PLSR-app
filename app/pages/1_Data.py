@@ -19,8 +19,16 @@ st.set_page_config(page_title="Data | Soil MIR PLSR", page_icon="🌱", layout="
 st.title("Data")
 st.caption("Inspect local spectra and reference data before modelling.")
 
-spectra_text = st.text_input("OPUS spectra directory", placeholder="/path/to/data/spectra/Complete")
-reference_text = st.text_input("Reference workbook", placeholder="/path/to/reference_value.xlsx")
+spectra_text = st.text_input(
+    "OPUS spectra directory",
+    value=st.session_state.get("soil_mir_spectra_dir", ""),
+    placeholder="/path/to/data/spectra/Complete",
+)
+reference_text = st.text_input(
+    "Reference workbook",
+    value=st.session_state.get("soil_mir_reference_excel", ""),
+    placeholder="/path/to/reference_value.xlsx",
+)
 
 if st.button("Inspect data", type="primary", use_container_width=False):
     if not spectra_text or not reference_text:
@@ -36,31 +44,49 @@ if st.button("Inspect data", type="primary", use_container_width=False):
         metadata = load_property_metadata(reference_path)
     except Exception as exc:
         st.exception(exc)
-        st.stop()
+    else:
+        st.session_state["soil_mir_spectra_dir"] = str(spectra_path)
+        st.session_state["soil_mir_reference_excel"] = str(reference_path)
+        st.session_state["soil_mir_properties"] = properties
+        st.session_state["soil_mir_metadata"] = metadata
+        st.session_state["soil_mir_spectra_summary"] = {
+            "file_count": spectra.file_count,
+            "total_bytes": spectra.total_bytes,
+            "filenames": spectra.filenames,
+        }
 
-    st.session_state["soil_mir_spectra_dir"] = str(spectra_path)
-    st.session_state["soil_mir_reference_excel"] = str(reference_path)
-    st.session_state["soil_mir_properties"] = properties
+properties = st.session_state.get("soil_mir_properties", [])
+spectra_summary = st.session_state.get("soil_mir_spectra_summary")
+reference_path_text = st.session_state.get("soil_mir_reference_excel")
 
+if properties and spectra_summary and reference_path_text:
     a, b, c = st.columns(3)
-    a.metric("OPUS files", f"{spectra.file_count:,}")
+    a.metric("OPUS files", f"{spectra_summary['file_count']:,}")
     b.metric("Property sheets", len(properties))
-    c.metric("Spectra size", f"{spectra.total_bytes / (1024**2):.1f} MB")
+    c.metric("Spectra size", f"{spectra_summary['total_bytes'] / (1024**2):.1f} MB")
 
     preferred = [name for name in ("202_STC", "202_STN") if name in properties]
     selected = st.multiselect(
         "Properties to inspect",
         properties,
-        default=preferred or properties[: min(2, len(properties))],
+        default=st.session_state.get(
+            "soil_mir_data_selected_properties",
+            preferred or properties[: min(2, len(properties))],
+        ),
     )
+    st.session_state["soil_mir_data_selected_properties"] = selected
 
     if selected:
         columns = ColumnConfig()
+        metadata = st.session_state.get("soil_mir_metadata", {})
+        available = set(spectra_summary["filenames"])
+        reference_path = Path(reference_path_text)
         rows = []
+
         for sheet in selected:
             summary = summarize_property(reference_path, sheet, columns, metadata)
             frame = read_property_sheet(reference_path, sheet, columns)
-            match = match_reference_files(frame, set(spectra.filenames), columns)
+            match = match_reference_files(frame, available, columns)
             rows.append(
                 {
                     "Property": summary.sheet,
@@ -81,7 +107,7 @@ if st.button("Inspect data", type="primary", use_container_width=False):
 
         for sheet in selected:
             frame = read_property_sheet(reference_path, sheet, columns)
-            match = match_reference_files(frame, set(spectra.filenames), columns)
+            match = match_reference_files(frame, available, columns)
             if match["missing_files"]:
                 with st.expander(f"{sheet}: missing spectra ({len(match['missing_files'])})"):
                     st.code("\n".join(match["missing_files"][:200]))
