@@ -7,6 +7,7 @@ from soil_mir.reporting import (
     initialize_run_manifest,
     list_run_history,
     read_run_manifest,
+    record_run_failure,
     record_run_result,
 )
 
@@ -57,9 +58,49 @@ def test_run_manifest_lifecycle(tmp_path: Path):
 
     manifest = read_run_manifest(run_dir)
     assert manifest["status"] == "completed"
+    assert manifest["failures"] == []
     assert len(manifest["results"]) == 1
     assert manifest["results"][0]["metrics"]["R2"] == 0.82
     assert manifest["results"][0]["final_model"]["rank"] == 4
+
+
+def test_run_manifest_records_partial_failure(tmp_path: Path):
+    run_dir = tmp_path / "20260923_130000_000000"
+    run_dir.mkdir()
+
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC", "202_STN"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    record_run_result(
+        run_dir,
+        _result(),
+        {
+            "model": "/results/model.joblib",
+            "workbook": "/results/results.xlsx",
+        },
+    )
+    record_run_failure(
+        run_dir,
+        property_name="202_STN",
+        method="kfold",
+        error="synthetic failure",
+    )
+    finalize_run_manifest(
+        run_dir,
+        status="completed_with_errors",
+    )
+
+    manifest = read_run_manifest(run_dir)
+    assert manifest["status"] == "completed_with_errors"
+    assert len(manifest["results"]) == 1
+    assert len(manifest["failures"]) == 1
+    assert manifest["failures"][0]["property"] == "202_STN"
+    assert manifest["failures"][0]["method"] == "kfold"
+    assert manifest["failures"][0]["error"] == "synthetic failure"
 
 
 def test_run_history_is_newest_first_and_skips_hidden_dirs(tmp_path: Path):
