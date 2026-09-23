@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import streamlit as st
 
+from soil_mir.reporting import (
+    create_run_directory,
+    export_validation_result,
+)
 from soil_mir.services.calibration import (
     load_calibration_dataset,
     run_validation_analysis,
@@ -20,6 +24,7 @@ st.caption(
 required = [
     "soil_mir_spectra_dir",
     "soil_mir_reference_excel",
+    "soil_mir_output_dir",
     "soil_mir_selected_properties",
     "soil_mir_validation_methods",
     "soil_mir_internal_cv_folds",
@@ -49,6 +54,10 @@ st.write(
 st.write(
     f"Validation methods: **{', '.join(methods)}**"
 )
+st.write(
+    "Results directory: "
+    f"{st.session_state['soil_mir_output_dir']}"
+)
 st.info(
     "Each outer split performs its own internal "
     "preprocessing/region/rank selection. "
@@ -70,6 +79,11 @@ if st.button(
     "Run validation",
     type="primary",
 ):
+    run_dir = create_run_directory(
+        st.session_state[
+            "soil_mir_output_dir"
+        ]
+    )
     results = {}
     total = len(properties) * len(methods)
     completed = 0
@@ -197,6 +211,12 @@ if st.button(
                         ][1]
                     ),
                 )
+                result["artifacts"] = (
+                    export_validation_result(
+                        result,
+                        run_dir,
+                    )
+                )
                 results[
                     f"{property_sheet}::{method}"
                 ] = result
@@ -214,6 +234,10 @@ if st.button(
     st.session_state[
         "soil_mir_results"
     ] = results
+    st.session_state[
+        "soil_mir_last_run_dir"
+    ] = str(run_dir)
     st.success(
-        "Validation completed. Open the Results page."
+        "Validation completed and saved to "
+        f"{run_dir}. Open the Results page."
     )

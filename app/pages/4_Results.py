@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -21,6 +23,14 @@ if not results:
         "No validation run is available in this session."
     )
     st.stop()
+
+last_run = st.session_state.get(
+    "soil_mir_last_run_dir"
+)
+if last_run:
+    st.success(
+        f"Saved locally: {last_run}"
+    )
 
 summary_rows = []
 for result in results.values():
@@ -136,6 +146,49 @@ for result in results.values():
             x="Measured",
             y="Predicted",
         )
+
+        st.subheader(
+            "Saved artifacts"
+        )
+        artifacts = result.get(
+            "artifacts",
+            {},
+        )
+        if artifacts:
+            st.code(
+                artifacts["directory"]
+            )
+            workbook = Path(
+                artifacts["workbook"]
+            )
+            model = Path(
+                artifacts["model"]
+            )
+            if workbook.is_file():
+                st.download_button(
+                    "Download results workbook",
+                    data=workbook.read_bytes(),
+                    file_name=workbook.name,
+                    mime=(
+                        "application/vnd.openxmlformats-"
+                        "officedocument.spreadsheetml.sheet"
+                    ),
+                    key=(
+                        f"workbook_{result['property']}_"
+                        f"{result['method']}"
+                    ),
+                )
+            if model.is_file():
+                st.download_button(
+                    "Download final model",
+                    data=model.read_bytes(),
+                    file_name=model.name,
+                    mime="application/octet-stream",
+                    key=(
+                        f"model_{result['property']}_"
+                        f"{result['method']}"
+                    ),
+                )
 
         st.subheader(
             "Validation summary"
