@@ -31,6 +31,10 @@ class CalibrationDataset:
     exclude_co2: bool
     rows: int
     unique_samples: int
+    reference_filter_min: float | None = None
+    reference_filter_max: float | None = None
+    excluded_reference_rows: int = 0
+    excluded_reference_samples: int = 0
     cache_hits: int = 0
     cache_misses: int = 0
     cache_path: str = ""
@@ -46,6 +50,8 @@ def load_calibration_dataset(
     co2_min: float = 2300.0,
     co2_max: float = 2400.0,
     cache_root: str | Path | None = None,
+    ref_min: float | None = None,
+    ref_max: float | None = None,
 ) -> CalibrationDataset:
     columns = ColumnConfig()
     frame = read_property_sheet(
@@ -63,6 +69,43 @@ def load_calibration_dataset(
     if frame.empty:
         raise ValueError(
             f"{property_sheet} has no complete reference rows."
+        )
+
+    if ref_min is not None:
+        ref_min = float(ref_min)
+        if not np.isfinite(ref_min):
+            raise ValueError("ref_min must be finite or None.")
+    if ref_max is not None:
+        ref_max = float(ref_max)
+        if not np.isfinite(ref_max):
+            raise ValueError("ref_max must be finite or None.")
+    if (
+        ref_min is not None
+        and ref_max is not None
+        and ref_min > ref_max
+    ):
+        raise ValueError("ref_min must not exceed ref_max.")
+
+    reference_values = frame[
+        columns.reference_value
+    ].to_numpy(dtype=float)
+    include = np.ones(len(frame), dtype=bool)
+    if ref_min is not None:
+        include &= reference_values >= ref_min
+    if ref_max is not None:
+        include &= reference_values <= ref_max
+
+    excluded = frame.loc[~include]
+    excluded_reference_rows = int((~include).sum())
+    excluded_reference_samples = int(
+        excluded[columns.sample_id].nunique()
+    )
+    frame = frame.loc[include].copy()
+
+    if frame.empty:
+        raise ValueError(
+            f"{property_sheet} has no rows inside the selected "
+            "reference-value range."
         )
 
     metadata = load_property_metadata(reference_excel)
@@ -131,6 +174,10 @@ def load_calibration_dataset(
         exclude_co2=exclude_co2,
         rows=len(frame),
         unique_samples=int(pd.Series(sample_ids).nunique()),
+        reference_filter_min=ref_min,
+        reference_filter_max=ref_max,
+        excluded_reference_rows=excluded_reference_rows,
+        excluded_reference_samples=excluded_reference_samples,
         cache_hits=cache_stats.hits,
         cache_misses=cache_stats.misses,
         cache_path=(
@@ -184,6 +231,10 @@ def run_validation_analysis(
         "property_name": dataset.property_name,
         "units": dataset.units,
         "transform": dataset.transform,
+        "ref_min": dataset.reference_filter_min,
+        "ref_max": dataset.reference_filter_max,
+        "excluded_reference_rows": dataset.excluded_reference_rows,
+        "excluded_reference_samples": dataset.excluded_reference_samples,
         "model_role": "final_all_samples",
     }
     cfg = prepare_region_config(
@@ -272,6 +323,10 @@ def preflight_validation_methods(
             "property_name": dataset.property_name,
             "units": dataset.units,
             "transform": dataset.transform,
+            "ref_min": dataset.reference_filter_min,
+            "ref_max": dataset.reference_filter_max,
+            "excluded_reference_rows": dataset.excluded_reference_rows,
+            "excluded_reference_samples": dataset.excluded_reference_samples,
             "model_role": "final_all_samples",
         }
 
