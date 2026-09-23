@@ -23,13 +23,7 @@ ci_config_check:
   image: python:3.11-slim
   script:
     - python -m compileall -q src app tests
-    - python - <<'PY'
-      import tomllib
-      with open("pyproject.toml", "rb") as handle:
-          config = tomllib.load(handle)
-      assert config["project"]["name"] == "soil-mir-app"
-      print("Project configuration is valid.")
-      PY
+    - python -c 'import tomllib; config=tomllib.load(open("pyproject.toml","rb")); assert config["project"]["name"] == "soil-mir-app"; print("Project configuration is valid.")'
 
 lint:
   extends: .python_job
