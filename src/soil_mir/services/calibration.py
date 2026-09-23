@@ -7,13 +7,16 @@ import numpy as np
 import pandas as pd
 
 from soil_mir.config import ColumnConfig
-from soil_mir.io.opus import read_opus_spectrum, resample_spectrum
+from soil_mir.io.opus import (
+    read_opus_spectrum,
+    resample_spectrum,
+)
 from soil_mir.io.reference import (
     load_property_metadata,
     read_property_sheet,
 )
-from soil_mir.modeling import fit_calibration_model
 from soil_mir.regions import prepare_region_config
+from soil_mir.validation import run_validation
 
 
 @dataclass(frozen=True)
@@ -53,21 +56,36 @@ def load_calibration_dataset(
         columns.reference_file,
         columns.group,
     ]
-    frame = frame.dropna(subset=required).copy()
+    frame = frame.dropna(
+        subset=required
+    ).copy()
     if frame.empty:
         raise ValueError(
             f"{property_sheet} has no complete reference rows."
         )
 
-    metadata = load_property_metadata(reference_excel)
-    property_metadata = metadata.get(property_sheet, {})
+    metadata = load_property_metadata(
+        reference_excel
+    )
+    property_metadata = metadata.get(
+        property_sheet,
+        {},
+    )
     transform = str(
-        property_metadata.get("transform", "none")
+        property_metadata.get(
+            "transform",
+            "none",
+        )
     )
     units = str(
-        property_metadata.get("units", "")
+        property_metadata.get(
+            "units",
+            "",
+        )
     )
-    metadata_exclude = property_metadata.get("exclude_co2")
+    metadata_exclude = property_metadata.get(
+        "exclude_co2"
+    )
     exclude_co2 = (
         fallback_exclude_co2
         if metadata_exclude is None
@@ -79,12 +97,17 @@ def load_calibration_dataset(
     target_axis = None
     missing = []
 
-    for filename in frame[columns.reference_file].astype(str):
+    for filename in frame[
+        columns.reference_file
+    ].astype(str):
         path = spectra_dir / filename
         if not path.is_file():
             missing.append(filename)
             continue
-        values, axis = read_opus_spectrum(path)
+
+        values, axis = read_opus_spectrum(
+            path
+        )
         if target_axis is None:
             target_axis = axis
         matrices.append(
@@ -96,18 +119,28 @@ def load_calibration_dataset(
         )
 
     if missing:
-        shown = ", ".join(missing[:8])
+        shown = ", ".join(
+            missing[:8]
+        )
         raise FileNotFoundError(
-            f"{len(missing)} referenced spectra are missing. "
-            f"First files: {shown}"
+            f"{len(missing)} referenced spectra "
+            f"are missing. First files: {shown}"
         )
     if target_axis is None or not matrices:
-        raise ValueError("No spectra could be loaded.")
+        raise ValueError(
+            "No spectra could be loaded."
+        )
 
     X = np.vstack(matrices)
-    y = frame[columns.reference_value].to_numpy(dtype=float)
-    sample_ids = frame[columns.sample_id].astype(str).to_numpy()
-    group_labels = frame[columns.group].astype(str).to_numpy()
+    y = frame[
+        columns.reference_value
+    ].to_numpy(dtype=float)
+    sample_ids = frame[
+        columns.sample_id
+    ].astype(str).to_numpy()
+    group_labels = frame[
+        columns.group
+    ].astype(str).to_numpy()
 
     mask = (
         (target_axis >= wn_min)
@@ -135,12 +168,14 @@ def load_calibration_dataset(
         exclude_co2=exclude_co2,
         rows=len(frame),
         unique_samples=int(
-            pd.Series(sample_ids).nunique()
+            pd.Series(
+                sample_ids
+            ).nunique()
         ),
     )
 
 
-def run_calibration(
+def run_validation_analysis(
     dataset: CalibrationDataset,
     *,
     method: str,
@@ -151,6 +186,11 @@ def run_calibration(
     sg_polyorder: int,
     random_seed: int,
     internal_cv_folds: int,
+    outer_cv_folds: int,
+    n_repeats: int,
+    validation_fraction: float,
+    ks_representation: str,
+    ks_pca_variance: float,
     wn_min: float,
     wn_max: float,
 ) -> dict:
@@ -171,7 +211,22 @@ def run_calibration(
         ),
         "outlier_max_pct": 0.0,
         "random_seed": int(random_seed),
-        "internal_cv_folds": int(internal_cv_folds),
+        "internal_cv_folds": int(
+            internal_cv_folds
+        ),
+        "outer_cv_folds": int(
+            outer_cv_folds
+        ),
+        "n_repeats": int(n_repeats),
+        "validation_fraction": float(
+            validation_fraction
+        ),
+        "ks_representation": (
+            ks_representation
+        ),
+        "ks_pca_variance": float(
+            ks_pca_variance
+        ),
         "method": method,
         "property_name": dataset.property_name,
         "units": dataset.units,
@@ -183,21 +238,20 @@ def run_calibration(
         dataset.wavenumbers,
     )
 
-    bundle, best, removed, search = fit_calibration_model(
+    result = run_validation(
         dataset.X,
         dataset.y,
         dataset.sample_ids,
+        dataset.group_labels,
         dataset.wavenumbers,
         cfg,
-        dataset.group_labels,
     )
-    return {
-        "property": dataset.property_name,
-        "method": method,
-        "dataset": dataset,
-        "bundle": bundle,
-        "best": best,
-        "removed_samples": removed,
-        "search": search,
-        "config": cfg,
-    }
+    result.update(
+        {
+            "property": dataset.property_name,
+            "method": method,
+            "dataset": dataset,
+            "config": cfg,
+        }
+    )
+    return result

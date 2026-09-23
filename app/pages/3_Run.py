@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import time
-
 import streamlit as st
 
 from soil_mir.services.calibration import (
     load_calibration_dataset,
-    run_calibration,
+    run_validation_analysis,
 )
 
 st.set_page_config(
@@ -16,8 +14,7 @@ st.set_page_config(
 )
 st.title("Run")
 st.caption(
-    "Current milestone: final calibration search with "
-    "internal CV. Outer validation is not yet wired."
+    "Nested model selection and outer validation."
 )
 
 required = [
@@ -25,6 +22,7 @@ required = [
     "soil_mir_reference_excel",
     "soil_mir_selected_properties",
     "soil_mir_validation_methods",
+    "soil_mir_internal_cv_folds",
 ]
 missing = [
     key
@@ -33,7 +31,8 @@ missing = [
 ]
 if missing:
     st.warning(
-        "Complete Data inspection and save Configuration first."
+        "Complete Data inspection and save "
+        "Configuration first."
     )
     st.stop()
 
@@ -48,34 +47,29 @@ st.write(
     f"Properties: **{', '.join(properties)}**"
 )
 st.write(
-    f"Model context(s): **{', '.join(methods)}**"
+    f"Validation methods: **{', '.join(methods)}**"
 )
 st.info(
-    "Scores shown after this run are internal calibration "
-    "CV scores used for model selection, not independent "
-    "held-out validation performance."
+    "Each outer split performs its own internal "
+    "preprocessing/region/rank selection. "
+    "The final model is refit separately using all "
+    "eligible samples after validation."
 )
 
-internal_cv_folds = st.number_input(
-    "Internal CV folds",
-    min_value=2,
-    max_value=20,
-    value=int(
-        st.session_state.get(
-            "soil_mir_internal_cv_folds",
-            10,
-        )
-    ),
-    step=1,
-)
+if "loso" in methods:
+    st.warning(
+        "LOSO can be computationally expensive because "
+        "it fits one nested model per sample."
+    )
+if "monte_carlo" in methods:
+    st.warning(
+        "Monte Carlo runtime grows with the number of repeats."
+    )
 
 if st.button(
-    "Run calibration search",
+    "Run validation",
     type="primary",
 ):
-    st.session_state[
-        "soil_mir_internal_cv_folds"
-    ] = int(internal_cv_folds)
     results = {}
     total = len(properties) * len(methods)
     completed = 0
@@ -87,7 +81,9 @@ if st.button(
             expanded=True,
         ) as status:
             dataset = load_calibration_dataset(
-                st.session_state["soil_mir_spectra_dir"],
+                st.session_state[
+                    "soil_mir_spectra_dir"
+                ],
                 st.session_state[
                     "soil_mir_reference_excel"
                 ],
@@ -113,13 +109,16 @@ if st.button(
                 f"Loaded {dataset.rows:,} spectra from "
                 f"{dataset.unique_samples:,} samples."
             )
+            st.write(
+                f"Transform: {dataset.transform}; "
+                f"CO₂ excluded: {dataset.exclude_co2}"
+            )
 
             for method in methods:
-                started = time.time()
                 st.write(
-                    f"Optimizing {property_sheet} / {method}..."
+                    f"Running {property_sheet} / {method}..."
                 )
-                result = run_calibration(
+                result = run_validation_analysis(
                     dataset,
                     method=method,
                     max_rank=int(
@@ -153,7 +152,39 @@ if st.button(
                         ]
                     ),
                     internal_cv_folds=int(
-                        internal_cv_folds
+                        st.session_state[
+                            "soil_mir_internal_cv_folds"
+                        ]
+                    ),
+                    outer_cv_folds=int(
+                        st.session_state.get(
+                            "soil_mir_outer_cv_folds",
+                            5,
+                        )
+                    ),
+                    n_repeats=int(
+                        st.session_state.get(
+                            "soil_mir_n_repeats",
+                            30,
+                        )
+                    ),
+                    validation_fraction=float(
+                        st.session_state.get(
+                            "soil_mir_validation_fraction",
+                            0.20,
+                        )
+                    ),
+                    ks_representation=str(
+                        st.session_state.get(
+                            "soil_mir_ks_representation",
+                            "raw",
+                        )
+                    ),
+                    ks_pca_variance=float(
+                        st.session_state.get(
+                            "soil_mir_ks_pca_variance",
+                            0.99,
+                        )
                     ),
                     wn_min=float(
                         st.session_state[
@@ -165,9 +196,6 @@ if st.button(
                             "soil_mir_wn_range"
                         ][1]
                     ),
-                )
-                result["elapsed_seconds"] = (
-                    time.time() - started
                 )
                 results[
                     f"{property_sheet}::{method}"
@@ -183,7 +211,9 @@ if st.button(
                 expanded=False,
             )
 
-    st.session_state["soil_mir_results"] = results
+    st.session_state[
+        "soil_mir_results"
+    ] = results
     st.success(
-        "Calibration search completed. Open the Results page."
+        "Validation completed. Open the Results page."
     )

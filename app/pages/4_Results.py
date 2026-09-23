@@ -10,89 +10,165 @@ st.set_page_config(
 )
 st.title("Results")
 st.caption(
-    "Internal calibration-search results. "
-    "Independent outer validation will be added next."
+    "Outer validation results and final all-data model selection."
 )
 
-results = st.session_state.get("soil_mir_results")
+results = st.session_state.get(
+    "soil_mir_results"
+)
 if not results:
     st.warning(
-        "No calibration run is available in this session."
+        "No validation run is available in this session."
     )
     st.stop()
 
 summary_rows = []
-for key, result in results.items():
-    best = result["best"]
+for result in results.values():
+    summary = result["summary"].set_index(
+        "Metric"
+    )
+    final_settings = result[
+        "final_settings"
+    ]
     summary_rows.append(
         {
             "Property": result["property"],
-            "Context": result["method"],
-            "Preprocessing": best["Preprocessing"],
-            "Region": best["Region"],
-            "Rank": int(best["Rank"]),
-            "RMSECV": float(best["RMSECV"]),
-            "R² CV": float(best["R2_CV"]),
-            "RPIQ CV": float(best["RPIQ_CV"]),
-            "Bias CV": float(best["Bias_CV"]),
-            "Tolerance (%)": float(
-                best["Tolerance (%)"]
+            "Method": result["method"],
+            "R²": float(
+                summary.loc["R2", "Value"]
+            ),
+            "RMSE": float(
+                summary.loc["RMSE", "Value"]
+            ),
+            "RPIQ": float(
+                summary.loc["RPIQ", "Value"]
+            ),
+            "Bias": float(
+                summary.loc["Bias", "Value"]
+            ),
+            "Final preprocessing": (
+                final_settings[
+                    "Preprocessing"
+                ]
+            ),
+            "Final region": (
+                final_settings["Region"]
+            ),
+            "Final rank": int(
+                final_settings["Rank"]
+            ),
+            "Validation samples": int(
+                result[
+                    "unique_validation_samples"
+                ]
             ),
             "Elapsed (s)": round(
                 float(
-                    result.get(
-                        "elapsed_seconds",
-                        0.0,
-                    )
+                    result["elapsed_seconds"]
                 ),
                 1,
             ),
         }
     )
 
-st.subheader("Calibration selection summary")
+st.subheader("Validation comparison")
 st.dataframe(
     pd.DataFrame(summary_rows),
     use_container_width=True,
     hide_index=True,
 )
 
-st.warning(
-    "These are internal CV model-selection metrics. "
-    "Do not interpret them as independent external "
-    "validation performance."
+st.info(
+    "Validation metrics come from outer predictions. "
+    "Final model settings are selected separately on "
+    "all eligible data and are not themselves a held-out score."
 )
 
-for key, result in results.items():
-    best = result["best"]
+for result in results.values():
     with st.expander(
         f"{result['property']} — {result['method']}",
         expanded=True,
     ):
+        summary = result["summary"].set_index(
+            "Metric"
+        )
         a, b, c, d = st.columns(4)
-        a.metric("RMSECV", f"{best['RMSECV']:.4g}")
-        b.metric("R² CV", f"{best['R2_CV']:.3f}")
-        c.metric("RPIQ CV", f"{best['RPIQ_CV']:.3f}")
-        d.metric("Selected rank", int(best["Rank"]))
+        a.metric(
+            "R²",
+            f"{summary.loc['R2', 'Value']:.3f}",
+        )
+        b.metric(
+            "RMSE",
+            f"{summary.loc['RMSE', 'Value']:.4g}",
+        )
+        c.metric(
+            "RPIQ",
+            f"{summary.loc['RPIQ', 'Value']:.3f}",
+        )
+        d.metric(
+            "Bias",
+            f"{summary.loc['Bias', 'Value']:.4g}",
+        )
 
+        final_settings = result[
+            "final_settings"
+        ]
         st.write(
-            f"**Preprocessing:** {best['Preprocessing']}"
-        )
-        st.write(
-            f"**Region:** {best['Region']}"
-        )
-        st.write(
-            "**Selected intervals:** "
-            f"{result['bundle']['regions_label']}"
+            "**Final model:** "
+            f"{final_settings['Preprocessing']} | "
+            f"{final_settings['Region']} | "
+            f"rank {int(final_settings['Rank'])}"
         )
 
-        search = result["search"].copy()
-        selected_first = search.sort_values(
-            ["Selected", "RMSECV"],
-            ascending=[False, True],
+        predictions = result[
+            "predictions"
+        ][
+            [
+                "Measured",
+                "Predicted",
+            ]
+        ]
+        st.subheader(
+            "Measured vs predicted"
+        )
+        st.scatter_chart(
+            predictions,
+            x="Measured",
+            y="Predicted",
+        )
+
+        st.subheader(
+            "Validation summary"
         )
         st.dataframe(
-            selected_first,
+            result["summary"],
             use_container_width=True,
             hide_index=True,
         )
+
+        st.subheader(
+            "Outer split details"
+        )
+        st.dataframe(
+            result["folds"],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.subheader(
+            "Validation predictions"
+        )
+        st.dataframe(
+            result["predictions"],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        with st.expander(
+            "Final calibration search"
+        ):
+            st.dataframe(
+                result["final_search"],
+                use_container_width=True,
+                hide_index=True,
+            )
