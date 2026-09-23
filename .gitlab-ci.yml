@@ -1,7 +1,6 @@
 stages:
   - validate
   - quality
-  - smoke
 
 default:
   interruptible: true
@@ -11,7 +10,7 @@ variables:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 cache:
-  key: "pip-$CI_COMMIT_REF_SLUG"
+  key: "python311-pip"
   paths:
     - .cache/pip/
 
@@ -22,7 +21,7 @@ workflow:
       when: never
     - if: '$CI_COMMIT_BRANCH'
 
-.python_job:
+.python_test_job:
   image: python:3.11-slim
   before_script:
     - python -m pip install -e ".[test,science]"
@@ -36,20 +35,24 @@ ci_config_check:
     - bash -n run_app.command
 
 lint:
-  extends: .python_job
   stage: quality
+  image: python:3.11-slim
+  before_script:
+    - python -m pip install "ruff>=0.6"
   script:
     - ruff check src app tests
 
 pytest:
-  extends: .python_job
+  extends: .python_test_job
   stage: quality
   script:
     - pytest -q
 
 streamlit_smoke:
-  extends: .python_job
-  stage: smoke
+  stage: quality
+  image: python:3.11-slim
+  before_script:
+    - python -m pip install "streamlit>=1.39"
   script:
     - streamlit run app/Home.py --server.headless=true --server.port=8501 > /tmp/streamlit.log 2>&1 & echo $! > /tmp/streamlit.pid
     - |
