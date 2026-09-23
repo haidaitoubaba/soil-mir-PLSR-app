@@ -47,5 +47,8 @@ def test_property_summary():
     assert summary.rows == 72
     assert summary.unique_samples == 24
     assert summary.groups == 12
+    assert summary.missing_reference_values == 0
+    assert summary.zero_reference_values == 0
+    assert summary.negative_reference_values == 0
     assert summary.reference_min > 0
     assert summary.reference_max > summary.reference_min
