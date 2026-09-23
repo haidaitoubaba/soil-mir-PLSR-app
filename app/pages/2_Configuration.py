@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import streamlit as st
 
 from soil_mir.config import (
@@ -60,6 +62,7 @@ PROFILE_SESSION_KEYS = {
     "soil_mir_validation_fraction",
     "soil_mir_ks_representation",
     "soil_mir_ks_pca_variance",
+    "soil_mir_reference_ranges",
 }
 
 output_dir = st.session_state.get(
@@ -338,7 +341,83 @@ with st.expander("Advanced spectral settings"):
         step=1,
     )
 
-current_values = {
+saved_reference_ranges = st.session_state.get(
+    "soil_mir_reference_ranges",
+    {},
+)
+reference_range_inputs = {}
+with st.expander("Reference-value filters (optional)"):
+    st.caption(
+        "Leave a field blank for no limit. "
+        "Limits are applied separately to each property before validation."
+    )
+    for property_name in selected_properties:
+        saved = saved_reference_ranges.get(
+            property_name,
+            {},
+        )
+        left_range, right_range = st.columns(2)
+        with left_range:
+            ref_min_text = st.text_input(
+                f"{property_name} minimum",
+                value=(
+                    ""
+                    if saved.get("min") is None
+                    else str(saved.get("min"))
+                ),
+                key=f"ref_min_{property_name}",
+            )
+        with right_range:
+            ref_max_text = st.text_input(
+                f"{property_name} maximum",
+                value=(
+                    ""
+                    if saved.get("max") is None
+                    else str(saved.get("max"))
+                ),
+                key=f"ref_max_{property_name}",
+            )
+        reference_range_inputs[property_name] = {
+            "min": ref_min_text,
+            "max": ref_max_text,
+        }
+
+
+def parsed_reference_ranges() -> dict:
+    parsed = {}
+    for property_name, values in reference_range_inputs.items():
+        bounds = {}
+        for bound in ("min", "max"):
+            text = str(values[bound]).strip()
+            if not text:
+                bounds[bound] = None
+                continue
+            try:
+                value = float(text)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{property_name} {bound} must be numeric or blank."
+                ) from exc
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"{property_name} {bound} must be finite or blank."
+                )
+            bounds[bound] = value
+
+        if (
+            bounds["min"] is not None
+            and bounds["max"] is not None
+            and bounds["min"] > bounds["max"]
+        ):
+            raise ValueError(
+                f"{property_name} minimum must not exceed maximum."
+            )
+        parsed[property_name] = bounds
+    return parsed
+
+
+def current_values() -> dict:
+    return {
     "soil_mir_selected_properties": selected_properties,
     "soil_mir_wn_range": tuple(wn_range),
     "soil_mir_exclude_co2": exclude_co2,
@@ -355,10 +434,11 @@ current_values = {
     "soil_mir_validation_fraction": float(validation_fraction),
     "soil_mir_ks_representation": ks_representation,
     "soil_mir_ks_pca_variance": float(ks_pca_variance),
-}
+    "soil_mir_reference_ranges": parsed_reference_ranges(),
+    }
 
 
-def validate_current_configuration():
+def validate_current_configuration() -> dict:
     spectral = SpectralConfig(
         wn_min=float(wn_range[0]),
         wn_max=float(wn_range[1]),
@@ -384,6 +464,7 @@ def validate_current_configuration():
         raise ValueError(
             "Holdout fraction must be between 0 and 1."
         )
+    return current_values()
 
 
 if st.button(
@@ -391,11 +472,11 @@ if st.button(
     type="primary",
 ):
     try:
-        validate_current_configuration()
+        values = validate_current_configuration()
     except Exception as exc:
         st.error(str(exc))
     else:
-        st.session_state.update(current_values)
+        st.session_state.update(values)
         st.success(
             "Configuration is valid and saved for this session."
         )
@@ -412,16 +493,16 @@ if output_dir:
         disabled=not profile_name.strip(),
     ):
         try:
-            validate_current_configuration()
+            values = validate_current_configuration()
             path = save_profile(
                 output_dir,
                 profile_name,
-                current_values,
+                values,
             )
         except Exception as exc:
             st.error(str(exc))
         else:
-            st.session_state.update(current_values)
+            st.session_state.update(values)
             st.success(
                 f"Saved configuration profile: {path.name}"
             )
