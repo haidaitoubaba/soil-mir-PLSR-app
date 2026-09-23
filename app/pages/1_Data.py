@@ -14,6 +14,9 @@ from soil_mir.io.reference import (
     read_property_sheet,
     summarize_property,
 )
+from soil_mir.services.acceptance import (
+    run_data_acceptance,
+)
 from soil_mir.services.local_paths import (
     detect_local_data_layout,
 )
@@ -313,4 +316,68 @@ if (
                 st.success(
                     f"{sheet}: every referenced "
                     "spectrum was found."
+                )
+
+
+        st.subheader("Full local data acceptance")
+        st.caption(
+            "This check actually parses every referenced OPUS file "
+            "for the selected properties, verifies the retained spectral "
+            "grid, and writes a reusable acceptance report. "
+            "The first run builds the local OPUS cache; later properties "
+            "and runs reuse unchanged spectra."
+        )
+        if st.button(
+            "Run full data acceptance check",
+            type="secondary",
+        ):
+            try:
+                with st.status(
+                    "Checking real OPUS data",
+                    expanded=True,
+                ) as acceptance_status:
+                    acceptance = run_data_acceptance(
+                        st.session_state[
+                            "soil_mir_spectra_dir"
+                        ],
+                        st.session_state[
+                            "soil_mir_reference_excel"
+                        ],
+                        st.session_state[
+                            "soil_mir_output_dir"
+                        ],
+                        properties=list(selected),
+                    )
+                    acceptance_status.update(
+                        label="Full data acceptance passed",
+                        state="complete",
+                        expanded=False,
+                    )
+            except Exception as exc:
+                st.error(
+                    "Full local data acceptance failed."
+                )
+                st.exception(exc)
+            else:
+                st.success(
+                    "All selected reference rows and OPUS files "
+                    "passed the full local data check."
+                )
+                st.dataframe(
+                    acceptance["properties"],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                if not acceptance["alignment"].empty:
+                    st.subheader(
+                        "Cross-property file alignment"
+                    )
+                    st.dataframe(
+                        acceptance["alignment"],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                st.write(
+                    "Acceptance report: "
+                    f"{acceptance['report_path']}"
                 )
