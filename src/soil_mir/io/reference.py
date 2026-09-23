@@ -9,7 +9,7 @@ import pandas as pd
 from soil_mir.config import ColumnConfig
 
 
-VALID_TRANSFORMS = {"none", "sqrt", "log", "log10", "boxcox", "yeojohnson"}
+VALID_TRANSFORMS = {"none", "sqrt", "log", "log10", "cbrt", "boxcox", "yeojohnson"}
 
 
 @dataclass(frozen=True)

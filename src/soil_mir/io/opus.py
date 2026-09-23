@@ -15,6 +15,35 @@ class OpusDirectorySummary:
     filenames: tuple[str, ...]
 
 
+def validate_wavenumbers(axis: np.ndarray) -> np.ndarray:
+    axis = np.asarray(axis, dtype=float)
+    if axis.ndim != 1 or len(axis) < 2 or not np.isfinite(axis).all():
+        raise ValueError("Wavenumbers must contain at least two finite coordinates.")
+    differences = np.diff(axis)
+    if not (np.all(differences > 0) or np.all(differences < 0)):
+        raise ValueError("Wavenumbers must be strictly ascending or descending.")
+    return axis
+
+
+def resample_spectrum(
+    values: np.ndarray, source_axis: np.ndarray, target_axis: np.ndarray
+) -> np.ndarray:
+    source_axis = validate_wavenumbers(source_axis)
+    target_axis = validate_wavenumbers(target_axis)
+    values = np.asarray(values, dtype=float)
+    if values.shape != source_axis.shape or not np.isfinite(values).all():
+        raise ValueError("Spectrum values must be finite and match their wavenumber axis.")
+    if target_axis.min() < source_axis.min() or target_axis.max() > source_axis.max():
+        raise ValueError(
+            "Spectrum does not cover the target wavenumber grid; extrapolation is disabled."
+        )
+    if np.array_equal(source_axis, target_axis):
+        return values
+    if source_axis[0] > source_axis[-1]:
+        source_axis, values = source_axis[::-1], values[::-1]
+    return np.interp(target_axis, source_axis, values)
+
+
 def list_opus_files(directory: str | Path) -> list[Path]:
     directory = Path(directory)
     if not directory.is_dir():
@@ -43,7 +72,6 @@ def inspect_opus_directory(directory: str | Path) -> OpusDirectorySummary:
 
 
 def read_opus_spectrum(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
-    """Read one Bruker OPUS spectrum and return absorbance + wavenumber arrays."""
     try:
         from brukeropusreader import read_file
     except ImportError as exc:
@@ -75,4 +103,4 @@ def read_opus_spectrum(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
         raise ValueError(f"Wavenumber metadata missing in {path}")
     if not np.isfinite(absorbance).all() or not np.isfinite(axis).all():
         raise ValueError(f"Non-finite spectral data in {path}")
-    return absorbance, axis
+    return absorbance, validate_wavenumbers(axis)
