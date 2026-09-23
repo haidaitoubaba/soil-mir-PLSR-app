@@ -7,10 +7,8 @@ import numpy as np
 import pandas as pd
 
 from soil_mir.config import ColumnConfig
-from soil_mir.io.opus import (
-    read_opus_spectrum,
-    resample_spectrum,
-)
+from soil_mir.io.cache import load_opus_spectra_cached
+from soil_mir.io.opus import resample_spectrum
 from soil_mir.io.reference import (
     load_property_metadata,
     read_property_sheet,
@@ -32,6 +30,9 @@ class CalibrationDataset:
     exclude_co2: bool
     rows: int
     unique_samples: int
+    cache_hits: int = 0
+    cache_misses: int = 0
+    cache_path: str = ""
 
 
 def load_calibration_dataset(
@@ -43,6 +44,7 @@ def load_calibration_dataset(
     fallback_exclude_co2: bool,
     co2_min: float = 2300.0,
     co2_max: float = 2400.0,
+    cache_root: str | Path | None = None,
 ) -> CalibrationDataset:
     columns = ColumnConfig()
     frame = read_property_sheet(
@@ -56,58 +58,34 @@ def load_calibration_dataset(
         columns.reference_file,
         columns.group,
     ]
-    frame = frame.dropna(
-        subset=required
-    ).copy()
+    frame = frame.dropna(subset=required).copy()
     if frame.empty:
         raise ValueError(
             f"{property_sheet} has no complete reference rows."
         )
 
-    metadata = load_property_metadata(
-        reference_excel
-    )
-    property_metadata = metadata.get(
-        property_sheet,
-        {},
-    )
-    transform = str(
-        property_metadata.get(
-            "transform",
-            "none",
-        )
-    )
-    units = str(
-        property_metadata.get(
-            "units",
-            "",
-        )
-    )
-    metadata_exclude = property_metadata.get(
-        "exclude_co2"
-    )
+    metadata = load_property_metadata(reference_excel)
+    property_metadata = metadata.get(property_sheet, {})
+    transform = str(property_metadata.get("transform", "none"))
+    units = str(property_metadata.get("units", ""))
+    metadata_exclude = property_metadata.get("exclude_co2")
     exclude_co2 = (
         fallback_exclude_co2
         if metadata_exclude is None
         else bool(metadata_exclude)
     )
 
-    spectra_dir = Path(spectra_dir)
+    filenames = frame[columns.reference_file].astype(str).tolist()
+    spectra_by_name, cache_stats = load_opus_spectra_cached(
+        spectra_dir,
+        filenames,
+        cache_root=cache_root,
+    )
+
     matrices = []
     target_axis = None
-    missing = []
-
-    for filename in frame[
-        columns.reference_file
-    ].astype(str):
-        path = spectra_dir / filename
-        if not path.is_file():
-            missing.append(filename)
-            continue
-
-        values, axis = read_opus_spectrum(
-            path
-        )
+    for filename in filenames:
+        values, axis = spectra_by_name[filename]
         if target_axis is None:
             target_axis = axis
         matrices.append(
@@ -118,29 +96,13 @@ def load_calibration_dataset(
             )
         )
 
-    if missing:
-        shown = ", ".join(
-            missing[:8]
-        )
-        raise FileNotFoundError(
-            f"{len(missing)} referenced spectra "
-            f"are missing. First files: {shown}"
-        )
     if target_axis is None or not matrices:
-        raise ValueError(
-            "No spectra could be loaded."
-        )
+        raise ValueError("No spectra could be loaded.")
 
     X = np.vstack(matrices)
-    y = frame[
-        columns.reference_value
-    ].to_numpy(dtype=float)
-    sample_ids = frame[
-        columns.sample_id
-    ].astype(str).to_numpy()
-    group_labels = frame[
-        columns.group
-    ].astype(str).to_numpy()
+    y = frame[columns.reference_value].to_numpy(dtype=float)
+    sample_ids = frame[columns.sample_id].astype(str).to_numpy()
+    group_labels = frame[columns.group].astype(str).to_numpy()
 
     mask = (
         (target_axis >= wn_min)
@@ -167,10 +129,13 @@ def load_calibration_dataset(
         transform=transform,
         exclude_co2=exclude_co2,
         rows=len(frame),
-        unique_samples=int(
-            pd.Series(
-                sample_ids
-            ).nunique()
+        unique_samples=int(pd.Series(sample_ids).nunique()),
+        cache_hits=cache_stats.hits,
+        cache_misses=cache_stats.misses,
+        cache_path=(
+            str(cache_stats.cache_path)
+            if cache_stats.cache_path is not None
+            else ""
         ),
     )
 
@@ -193,6 +158,7 @@ def run_validation_analysis(
     ks_pca_variance: float,
     wn_min: float,
     wn_max: float,
+    progress_callback=None,
 ) -> dict:
     cfg = {
         "wn_min": float(wn_min),
@@ -203,30 +169,16 @@ def run_validation_analysis(
         "sg_window": int(sg_window),
         "sg_polyorder": int(sg_polyorder),
         "max_rank": int(max_rank),
-        "region_search_n_windows": int(
-            region_search_n_windows
-        ),
-        "rmsecv_tolerance_pct": float(
-            rmsecv_tolerance_pct
-        ),
+        "region_search_n_windows": int(region_search_n_windows),
+        "rmsecv_tolerance_pct": float(rmsecv_tolerance_pct),
         "outlier_max_pct": 0.0,
         "random_seed": int(random_seed),
-        "internal_cv_folds": int(
-            internal_cv_folds
-        ),
-        "outer_cv_folds": int(
-            outer_cv_folds
-        ),
+        "internal_cv_folds": int(internal_cv_folds),
+        "outer_cv_folds": int(outer_cv_folds),
         "n_repeats": int(n_repeats),
-        "validation_fraction": float(
-            validation_fraction
-        ),
-        "ks_representation": (
-            ks_representation
-        ),
-        "ks_pca_variance": float(
-            ks_pca_variance
-        ),
+        "validation_fraction": float(validation_fraction),
+        "ks_representation": ks_representation,
+        "ks_pca_variance": float(ks_pca_variance),
         "method": method,
         "property_name": dataset.property_name,
         "units": dataset.units,
@@ -245,6 +197,7 @@ def run_validation_analysis(
         dataset.group_labels,
         dataset.wavenumbers,
         cfg,
+        progress_callback=progress_callback,
     )
     result.update(
         {
