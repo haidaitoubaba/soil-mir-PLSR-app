@@ -1,25 +1,18 @@
 from pathlib import Path
 
-import numpy as np
+import brukeropusreader
 
-from soil_mir.io.opus import inspect_opus_directory, read_opus_spectrum
-
-
-FIXTURE = Path(__file__).parent / "fixtures" / "soil_mir_202" / "opus_smoke"
+from soil_mir.io.opus import inspect_opus_directory
 
 
-def test_opus_smoke_fixture_has_three_replicates():
-    summary = inspect_opus_directory(FIXTURE)
-    assert summary.file_count == 3
-    assert len(summary.filenames) == 3
+def test_science_dependency_is_installable():
+    assert brukeropusreader is not None
 
 
-def test_real_opus_file_can_be_parsed():
-    summary = inspect_opus_directory(FIXTURE)
-    absorbance, wavenumbers = read_opus_spectrum(FIXTURE / summary.filenames[0])
-    assert absorbance.ndim == 1
-    assert wavenumbers.ndim == 1
-    assert len(absorbance) == len(wavenumbers)
-    assert len(absorbance) > 1000
-    assert np.isfinite(absorbance).all()
-    assert np.isfinite(wavenumbers).all()
+def test_opus_directory_detection_uses_numeric_extensions(tmp_path: Path):
+    (tmp_path / "sample_1.0").write_bytes(b"not parsed in this unit test")
+    (tmp_path / "sample_1.1").write_bytes(b"not parsed in this unit test")
+    (tmp_path / "notes.txt").write_text("ignore me")
+    summary = inspect_opus_directory(tmp_path)
+    assert summary.file_count == 2
+    assert summary.filenames == ("sample_1.0", "sample_1.1")

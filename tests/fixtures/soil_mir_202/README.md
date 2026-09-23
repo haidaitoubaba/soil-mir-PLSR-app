@@ -10,8 +10,8 @@ Design:
 - 2 samples per group;
 - 3 reference/spectral replicate filenames per sample in the reduced reference workbook;
 - the exact same sample set for STC and STN;
-- three real OPUS files from one selected sample for parser smoke testing;
-- `model_matrix.csv` contains one replicate-averaged spectrum per sample, downsampled to 256
-  wavenumber locations for fast CI tests.
+- only the reduced reference workbook and manifest are committed at this stage.
 
-The full research dataset must remain outside Git.
+The full research dataset and raw OPUS binaries remain outside Git. Real OPUS parsing against the
+uploaded research spectra will be added as a dedicated regression layer after the core engine is
+extracted, rather than putting the complete dataset into normal repository history.
