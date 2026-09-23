@@ -556,6 +556,7 @@ def run_validation(
     labels: np.ndarray,
     axis: np.ndarray,
     cfg: dict,
+    progress_callback=None,
 ) -> dict:
     started = time.time()
     if "_regions" not in cfg:
@@ -596,27 +597,44 @@ def run_validation(
                     }
                 )
 
-    results = [
-        run_outer_fold(
-            number,
-            split,
-            X,
-            y,
-            keys,
-            labels,
-            axis,
-            cfg,
+    total_steps = len(splits) + 1
+    results = []
+    for number, split in enumerate(splits, 1):
+        if progress_callback is not None:
+            progress_callback(
+                number - 1,
+                total_steps,
+                f"Outer split {number}/{len(splits)}",
+            )
+        results.append(
+            run_outer_fold(
+                number,
+                split,
+                X,
+                y,
+                keys,
+                labels,
+                axis,
+                cfg,
+            )
         )
-        for number, split in enumerate(
-            splits,
-            1,
-        )
-    ]
+        if progress_callback is not None:
+            progress_callback(
+                number,
+                total_steps,
+                f"Completed outer split {number}/{len(splits)}",
+            )
 
     final_cfg = {
         **cfg,
         "model_role": "final_all_samples",
     }
+    if progress_callback is not None:
+        progress_callback(
+            len(splits),
+            total_steps,
+            "Fitting final all-data model",
+        )
     final_model, final_settings, _, final_search = (
         fit_calibration_model(
             X,
@@ -627,6 +645,12 @@ def run_validation(
             labels,
         )
     )
+    if progress_callback is not None:
+        progress_callback(
+            total_steps,
+            total_steps,
+            "Validation and final refit complete",
+        )
 
     predictions = pd.concat(
         [
