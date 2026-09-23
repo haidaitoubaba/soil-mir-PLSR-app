@@ -125,7 +125,11 @@ def transform_preprocessor(fitted: dict, X: np.ndarray) -> np.ndarray:
     )
 
 
-def fit_transform_preprocessor(prep_name: str, X_train: np.ndarray, cfg: dict) -> tuple[dict, np.ndarray]:
+def fit_transform_preprocessor(
+    prep_name: str,
+    X_train: np.ndarray,
+    cfg: dict,
+) -> tuple[dict, np.ndarray]:
     derivative = spectral_derivative(X_train, cfg)
     fitted = preprocessor_state(prep_name, derivative, cfg)
     return fitted, _postprocess_derivative(
