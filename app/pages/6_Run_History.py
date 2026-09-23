@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+from soil_mir.reporting import list_run_history
+
+
+st.set_page_config(
+    page_title="Run History | Soil MIR PLSR",
+    page_icon="🌱",
+    layout="wide",
+)
+st.title("Run History")
+st.caption(
+    "Inspect completed and interrupted analyses saved in the local results directory."
+)
+
+output_dir = st.text_input(
+    "Results directory",
+    value=st.session_state.get(
+        "soil_mir_output_dir",
+        "",
+    ),
+    placeholder="/path/to/soil_mir_results",
+)
+
+if not output_dir:
+    st.info(
+        "Choose the same results directory used on the Data page."
+    )
+    st.stop()
+
+history = list_run_history(
+    Path(output_dir).expanduser()
+)
+if not history:
+    st.info(
+        "No saved run manifests were found in this directory."
+    )
+    st.stop()
+
+rows = []
+for manifest in history:
+    results = manifest.get("results", [])
+    rows.append(
+        {
+            "Run": manifest.get("run_id", ""),
+            "Created": manifest.get("created_at", ""),
+            "Status": manifest.get("status", ""),
+            "Properties": ", ".join(
+                manifest.get("properties", [])
+            ),
+            "Methods": ", ".join(
+                manifest.get("methods", [])
+            ),
+            "Completed analyses": len(results),
+            "Directory": manifest.get("run_dir", ""),
+        }
+    )
+
+st.dataframe(
+    pd.DataFrame(rows),
+    use_container_width=True,
+    hide_index=True,
+)
+
+for manifest in history:
+    label = (
+        f"{manifest.get('run_id', 'run')} — "
+        f"{manifest.get('status', 'unknown')}"
+    )
+    with st.expander(label):
+        st.write(
+            f"**Run directory:** {manifest.get('run_dir', '')}"
+        )
+        st.write(
+            f"**Spectra:** {manifest.get('spectra_dir', '')}"
+        )
+        st.write(
+            f"**Reference workbook:** "
+            f"{manifest.get('reference_excel', '')}"
+        )
+        error = manifest.get("error", "")
+        if error:
+            st.error(error)
+
+        result_rows = []
+        for result in manifest.get("results", []):
+            metrics = result.get("metrics", {})
+            model = result.get("final_model", {})
+            result_rows.append(
+                {
+                    "Property": result.get("property", ""),
+                    "Method": result.get("method", ""),
+                    "R²": metrics.get("R2"),
+                    "RMSE": metrics.get("RMSE"),
+                    "RPIQ": metrics.get("RPIQ"),
+                    "Bias": metrics.get("Bias"),
+                    "Preprocessing": model.get(
+                        "preprocessing",
+                        "",
+                    ),
+                    "Region": model.get("region", ""),
+                    "Rank": model.get("rank"),
+                    "Validation samples": result.get(
+                        "validation_samples"
+                    ),
+                    "Elapsed (s)": result.get(
+                        "elapsed_seconds"
+                    ),
+                }
+            )
+
+        if result_rows:
+            st.dataframe(
+                pd.DataFrame(result_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        for result in manifest.get("results", []):
+            artifacts = result.get("artifacts", {})
+            property_name = result.get(
+                "property",
+                "property",
+            )
+            method = result.get(
+                "method",
+                "method",
+            )
+            if artifacts:
+                st.markdown(
+                    f"**{property_name} / {method} artifacts**"
+                )
+                st.code(
+                    artifacts.get(
+                        "directory",
+                        "",
+                    )
+                )
+                workbook = Path(
+                    artifacts.get(
+                        "workbook",
+                        "",
+                    )
+                )
+                model_path = Path(
+                    artifacts.get(
+                        "model",
+                        "",
+                    )
+                )
+                if workbook.is_file():
+                    st.download_button(
+                        f"Download {property_name} {method} workbook",
+                        data=workbook.read_bytes(),
+                        file_name=workbook.name,
+                        mime=(
+                            "application/vnd.openxmlformats-"
+                            "officedocument.spreadsheetml.sheet"
+                        ),
+                        key=(
+                            f"history_workbook_"
+                            f"{manifest.get('run_id')}_"
+                            f"{property_name}_{method}"
+                        ),
+                    )
+                if model_path.is_file():
+                    st.download_button(
+                        f"Download {property_name} {method} model",
+                        data=model_path.read_bytes(),
+                        file_name=model_path.name,
+                        mime="application/octet-stream",
+                        key=(
+                            f"history_model_"
+                            f"{manifest.get('run_id')}_"
+                            f"{property_name}_{method}"
+                        ),
+                    )

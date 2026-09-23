@@ -57,7 +57,6 @@ def test_run_manifest_lifecycle(tmp_path: Path):
 
     manifest = read_run_manifest(run_dir)
     assert manifest["status"] == "completed"
-    assert manifest["result_count"] if "result_count" in manifest else True
     assert len(manifest["results"]) == 1
     assert manifest["results"][0]["metrics"]["R2"] == 0.82
     assert manifest["results"][0]["final_model"]["rank"] == 4
