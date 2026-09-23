@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 from soil_mir.reporting import (
@@ -13,8 +14,10 @@ from soil_mir.reporting import (
 )
 from soil_mir.services.calibration import (
     load_calibration_dataset,
+    preflight_validation_methods,
     run_validation_analysis,
 )
+
 
 st.set_page_config(
     page_title="Run | Soil MIR PLSR",
@@ -23,7 +26,7 @@ st.set_page_config(
 )
 st.title("Run")
 st.caption(
-    "Nested model selection and outer validation."
+    "Pre-run data checks, nested model selection, and outer validation."
 )
 
 required = [
@@ -41,17 +44,85 @@ missing = [
 ]
 if missing:
     st.warning(
-        "Complete Data inspection and save "
-        "Configuration first."
+        "Complete Data inspection and save Configuration first."
     )
     st.stop()
 
-properties = st.session_state[
-    "soil_mir_selected_properties"
-]
-methods = st.session_state[
-    "soil_mir_validation_methods"
-]
+properties = list(
+    st.session_state["soil_mir_selected_properties"]
+)
+methods = list(
+    st.session_state["soil_mir_validation_methods"]
+)
+
+
+def analysis_settings() -> dict:
+    return {
+        "max_rank": int(
+            st.session_state["soil_mir_max_rank"]
+        ),
+        "region_search_n_windows": int(
+            st.session_state["soil_mir_region_windows"]
+        ),
+        "rmsecv_tolerance_pct": float(
+            st.session_state["soil_mir_tolerance"]
+        ),
+        "sg_window": int(
+            st.session_state["soil_mir_sg_window"]
+        ),
+        "sg_polyorder": int(
+            st.session_state["soil_mir_sg_polyorder"]
+        ),
+        "random_seed": int(
+            st.session_state["soil_mir_random_seed"]
+        ),
+        "internal_cv_folds": int(
+            st.session_state["soil_mir_internal_cv_folds"]
+        ),
+        "outer_cv_folds": int(
+            st.session_state.get(
+                "soil_mir_outer_cv_folds",
+                5,
+            )
+        ),
+        "n_repeats": int(
+            st.session_state.get(
+                "soil_mir_n_repeats",
+                30,
+            )
+        ),
+        "validation_fraction": float(
+            st.session_state.get(
+                "soil_mir_validation_fraction",
+                0.20,
+            )
+        ),
+        "ks_representation": str(
+            st.session_state.get(
+                "soil_mir_ks_representation",
+                "raw",
+            )
+        ),
+        "ks_pca_variance": float(
+            st.session_state.get(
+                "soil_mir_ks_pca_variance",
+                0.99,
+            )
+        ),
+        "wn_min": float(
+            st.session_state["soil_mir_wn_range"][0]
+        ),
+        "wn_max": float(
+            st.session_state["soil_mir_wn_range"][1]
+        ),
+    }
+
+
+settings = analysis_settings()
+cache_root = (
+    Path(st.session_state["soil_mir_output_dir"])
+    / ".soil_mir_cache"
+)
 
 st.write(
     f"Properties: **{', '.join(properties)}**"
@@ -64,10 +135,8 @@ st.write(
     f"{st.session_state['soil_mir_output_dir']}"
 )
 st.info(
-    "Each outer split performs its own internal "
-    "preprocessing/region/rank selection. "
-    "The final model is refit separately using all "
-    "eligible samples after validation."
+    "One click first performs real-data preflight checks. "
+    "Only if every selected property/method is feasible does the nested validation start."
 )
 
 if "loso" in methods:
@@ -84,52 +153,24 @@ if st.button(
     "Run validation",
     type="primary",
 ):
-    run_dir = create_run_directory(
-        st.session_state[
-            "soil_mir_output_dir"
-        ]
-    )
-    initialize_run_manifest(
-        run_dir,
-        properties=list(properties),
-        methods=list(methods),
-        spectra_dir=st.session_state["soil_mir_spectra_dir"],
-        reference_excel=st.session_state["soil_mir_reference_excel"],
-    )
-    cache_root = (
-        Path(st.session_state["soil_mir_output_dir"])
-        / ".soil_mir_cache"
-    )
-    results = {}
-    total = len(properties) * len(methods)
-    completed = 0
-    progress = st.progress(0.0)
-    progress_note = st.empty()
+    datasets = {}
+    preflight_frames = []
 
     try:
-        for property_sheet in properties:
-            with st.status(
-                f"Loading {property_sheet}",
-                expanded=True,
-            ) as status:
+        with st.status(
+            "Pre-run validation",
+            expanded=True,
+        ) as preflight_status:
+            for property_sheet in properties:
+                st.write(
+                    f"Reading and validating {property_sheet}..."
+                )
                 dataset = load_calibration_dataset(
-                    st.session_state[
-                        "soil_mir_spectra_dir"
-                    ],
-                    st.session_state[
-                        "soil_mir_reference_excel"
-                    ],
+                    st.session_state["soil_mir_spectra_dir"],
+                    st.session_state["soil_mir_reference_excel"],
                     property_sheet,
-                    wn_min=float(
-                        st.session_state[
-                            "soil_mir_wn_range"
-                        ][0]
-                    ),
-                    wn_max=float(
-                        st.session_state[
-                            "soil_mir_wn_range"
-                        ][1]
-                    ),
+                    wn_min=settings["wn_min"],
+                    wn_max=settings["wn_max"],
                     fallback_exclude_co2=bool(
                         st.session_state.get(
                             "soil_mir_exclude_co2",
@@ -138,25 +179,95 @@ if st.button(
                     ),
                     cache_root=cache_root,
                 )
+                datasets[property_sheet] = dataset
                 st.write(
-                    f"Loaded {dataset.rows:,} spectra from "
-                    f"{dataset.unique_samples:,} samples."
-                )
-                st.write(
-                    f"Transform: {dataset.transform}; "
-                    f"CO₂ excluded: {dataset.exclude_co2}"
-                )
-                st.write(
-                    "OPUS cache: "
-                    f"{dataset.cache_hits} reused, "
+                    f"{property_sheet}: {dataset.rows:,} spectra, "
+                    f"{dataset.unique_samples:,} samples; "
+                    f"cache {dataset.cache_hits} reused / "
                     f"{dataset.cache_misses} parsed."
                 )
 
+                preflight_frames.append(
+                    preflight_validation_methods(
+                        dataset,
+                        methods=methods,
+                        **settings,
+                    )
+                )
+
+            preflight = pd.concat(
+                preflight_frames,
+                ignore_index=True,
+            )
+            st.dataframe(
+                preflight,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            failures = preflight[
+                preflight["Status"] != "Pass"
+            ]
+            if not failures.empty:
+                preflight_status.update(
+                    label="Pre-run validation failed",
+                    state="error",
+                    expanded=True,
+                )
+                st.error(
+                    "The analysis did not start because one or more "
+                    "validation designs are not feasible."
+                )
+                st.stop()
+
+            preflight_status.update(
+                label="Pre-run validation passed",
+                state="complete",
+                expanded=False,
+            )
+    except Exception as exc:
+        st.error(
+            "The analysis did not start because input validation failed."
+        )
+        st.exception(exc)
+        st.stop()
+
+    run_dir = create_run_directory(
+        st.session_state["soil_mir_output_dir"]
+    )
+    initialize_run_manifest(
+        run_dir,
+        properties=properties,
+        methods=methods,
+        spectra_dir=st.session_state["soil_mir_spectra_dir"],
+        reference_excel=st.session_state["soil_mir_reference_excel"],
+    )
+
+    results = {}
+    total = len(properties) * len(methods)
+    completed = 0
+    progress = st.progress(0.0)
+    progress_note = st.empty()
+
+    try:
+        for property_sheet in properties:
+            dataset = datasets[property_sheet]
+            with st.status(
+                f"Running {property_sheet}",
+                expanded=True,
+            ) as status:
                 for method in methods:
                     st.write(
                         f"Running {property_sheet} / {method}..."
                     )
-                    def method_progress(step, step_total, message):
+
+                    def method_progress(
+                        step,
+                        step_total,
+                        message,
+                        property_name=property_sheet,
+                        method_name=method,
+                    ):
                         within = (
                             step / step_total
                             if step_total
@@ -169,87 +280,13 @@ if st.button(
                             )
                         )
                         progress_note.caption(
-                            f"{property_sheet} / {method}: {message}"
+                            f"{property_name} / {method_name}: {message}"
                         )
 
                     result = run_validation_analysis(
                         dataset,
                         method=method,
-                        max_rank=int(
-                            st.session_state[
-                                "soil_mir_max_rank"
-                            ]
-                        ),
-                        region_search_n_windows=int(
-                            st.session_state[
-                                "soil_mir_region_windows"
-                            ]
-                        ),
-                        rmsecv_tolerance_pct=float(
-                            st.session_state[
-                                "soil_mir_tolerance"
-                            ]
-                        ),
-                        sg_window=int(
-                            st.session_state[
-                                "soil_mir_sg_window"
-                            ]
-                        ),
-                        sg_polyorder=int(
-                            st.session_state[
-                                "soil_mir_sg_polyorder"
-                            ]
-                        ),
-                        random_seed=int(
-                            st.session_state[
-                                "soil_mir_random_seed"
-                            ]
-                        ),
-                        internal_cv_folds=int(
-                            st.session_state[
-                                "soil_mir_internal_cv_folds"
-                            ]
-                        ),
-                        outer_cv_folds=int(
-                            st.session_state.get(
-                                "soil_mir_outer_cv_folds",
-                                5,
-                            )
-                        ),
-                        n_repeats=int(
-                            st.session_state.get(
-                                "soil_mir_n_repeats",
-                                30,
-                            )
-                        ),
-                        validation_fraction=float(
-                            st.session_state.get(
-                                "soil_mir_validation_fraction",
-                                0.20,
-                            )
-                        ),
-                        ks_representation=str(
-                            st.session_state.get(
-                                "soil_mir_ks_representation",
-                                "raw",
-                            )
-                        ),
-                        ks_pca_variance=float(
-                            st.session_state.get(
-                                "soil_mir_ks_pca_variance",
-                                0.99,
-                            )
-                        ),
-                        wn_min=float(
-                            st.session_state[
-                                "soil_mir_wn_range"
-                            ][0]
-                        ),
-                        wn_max=float(
-                            st.session_state[
-                                "soil_mir_wn_range"
-                            ][1]
-                        ),
+                        **settings,
                         progress_callback=method_progress,
                     )
                     result["artifacts"] = (
@@ -266,6 +303,7 @@ if st.button(
                     results[
                         f"{property_sheet}::{method}"
                     ] = result
+
                     completed += 1
                     progress.progress(
                         completed / total
@@ -276,14 +314,15 @@ if st.button(
                     state="complete",
                     expanded=False,
                 )
-
     except Exception as exc:
         finalize_run_manifest(
             run_dir,
             status="failed",
             error=str(exc),
         )
-        progress_note.caption("Run failed. Completed analyses were preserved.")
+        progress_note.caption(
+            "Run failed. Completed analyses were preserved."
+        )
         st.exception(exc)
         st.stop()
 
@@ -294,12 +333,10 @@ if st.button(
     progress.progress(1.0)
     progress_note.caption("Run complete.")
 
-    st.session_state[
-        "soil_mir_results"
-    ] = results
-    st.session_state[
-        "soil_mir_last_run_dir"
-    ] = str(run_dir)
+    st.session_state["soil_mir_results"] = results
+    st.session_state["soil_mir_last_run_dir"] = str(
+        run_dir
+    )
     st.success(
         "Validation completed and saved to "
         f"{run_dir}. Open the Results page."
