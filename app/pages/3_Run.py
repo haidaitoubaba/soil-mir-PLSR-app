@@ -57,6 +57,10 @@ properties = list(
 methods = list(
     st.session_state["soil_mir_validation_methods"]
 )
+reference_ranges = st.session_state.get(
+    "soil_mir_reference_ranges",
+    {},
+)
 
 
 def analysis_settings() -> dict:
@@ -168,6 +172,10 @@ if st.button(
                 st.write(
                     f"Reading and validating {property_sheet}..."
                 )
+                property_range = reference_ranges.get(
+                    property_sheet,
+                    {},
+                )
                 dataset = load_calibration_dataset(
                     st.session_state["soil_mir_spectra_dir"],
                     st.session_state["soil_mir_reference_excel"],
@@ -181,6 +189,8 @@ if st.button(
                         )
                     ),
                     cache_root=cache_root,
+                    ref_min=property_range.get("min"),
+                    ref_max=property_range.get("max"),
                 )
                 datasets[property_sheet] = dataset
                 st.write(
@@ -189,6 +199,12 @@ if st.button(
                     f"cache {dataset.cache_hits} reused / "
                     f"{dataset.cache_misses} parsed."
                 )
+                if dataset.excluded_reference_rows:
+                    st.write(
+                        f"Reference filter excluded "
+                        f"{dataset.excluded_reference_rows:,} rows from "
+                        f"{dataset.excluded_reference_samples:,} samples."
+                    )
 
                 preflight_frames.append(
                     preflight_validation_methods(
@@ -254,6 +270,7 @@ if st.button(
             "reference_excel": st.session_state["soil_mir_reference_excel"],
             "output_dir": st.session_state["soil_mir_output_dir"],
             "analysis_settings": settings,
+            "reference_ranges": reference_ranges,
         },
     )
 
