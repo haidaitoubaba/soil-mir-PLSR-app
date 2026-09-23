@@ -1,21 +1,30 @@
 stages:
   - validate
-  - lint
-  - test
+  - quality
   - smoke
 
 default:
   interruptible: true
 
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+cache:
+  key: "pip-$CI_COMMIT_REF_SLUG"
+  paths:
+    - .cache/pip/
+
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
 
 .python_job:
   image: python:3.11-slim
   before_script:
-    - python -m pip install --upgrade pip
     - python -m pip install -e ".[test,science]"
 
 ci_config_check:
@@ -28,13 +37,13 @@ ci_config_check:
 
 lint:
   extends: .python_job
-  stage: lint
+  stage: quality
   script:
     - ruff check src app tests
 
 pytest:
   extends: .python_job
-  stage: test
+  stage: quality
   script:
     - pytest -q
 
