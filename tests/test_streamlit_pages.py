@@ -4,20 +4,21 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 
+ROOT = Path(__file__).resolve().parents[1]
 APP_FILES = [
-    Path("app/Home.py"),
-    Path("app/pages/1_Data.py"),
-    Path("app/pages/2_Configuration.py"),
-    Path("app/pages/3_Run.py"),
-    Path("app/pages/4_Results.py"),
-    Path("app/pages/5_Predict.py"),
-    Path("app/pages/6_Run_History.py"),
+    ROOT / "app" / "Home.py",
+    ROOT / "app" / "pages" / "1_Data.py",
+    ROOT / "app" / "pages" / "2_Configuration.py",
+    ROOT / "app" / "pages" / "3_Run.py",
+    ROOT / "app" / "pages" / "4_Results.py",
+    ROOT / "app" / "pages" / "5_Predict.py",
+    ROOT / "app" / "pages" / "6_Run_History.py",
 ]
 
 
 @pytest.mark.parametrize("path", APP_FILES, ids=lambda path: path.stem)
 def test_streamlit_page_renders_without_exception(path):
-    app = AppTest.from_file(str(path), default_timeout=15)
+    app = AppTest.from_file(path, default_timeout=15)
     app.run()
 
     messages = [
