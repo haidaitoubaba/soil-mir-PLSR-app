@@ -14,7 +14,8 @@ from soil_mir.io.reference import (
     read_property_sheet,
 )
 from soil_mir.regions import prepare_region_config
-from soil_mir.validation import run_validation
+from soil_mir.transforms import apply_transform
+from soil_mir.validation import outer_splits, run_validation
 
 
 @dataclass(frozen=True)
@@ -208,3 +209,117 @@ def run_validation_analysis(
         }
     )
     return result
+
+
+def preflight_validation_methods(
+    dataset: CalibrationDataset,
+    *,
+    methods: list[str],
+    max_rank: int,
+    region_search_n_windows: int,
+    rmsecv_tolerance_pct: float,
+    sg_window: int,
+    sg_polyorder: int,
+    random_seed: int,
+    internal_cv_folds: int,
+    outer_cv_folds: int,
+    n_repeats: int,
+    validation_fraction: float,
+    ks_representation: str,
+    ks_pca_variance: float,
+    wn_min: float,
+    wn_max: float,
+) -> pd.DataFrame:
+    apply_transform(
+        dataset.y,
+        dataset.transform,
+    )
+    records = []
+
+    for method in methods:
+        cfg = {
+            "wn_min": float(wn_min),
+            "wn_max": float(wn_max),
+            "exclude_co2": dataset.exclude_co2,
+            "co2_exclude_min": 2300.0,
+            "co2_exclude_max": 2400.0,
+            "sg_window": int(sg_window),
+            "sg_polyorder": int(sg_polyorder),
+            "max_rank": int(max_rank),
+            "region_search_n_windows": int(
+                region_search_n_windows
+            ),
+            "rmsecv_tolerance_pct": float(
+                rmsecv_tolerance_pct
+            ),
+            "outlier_max_pct": 0.0,
+            "random_seed": int(random_seed),
+            "internal_cv_folds": int(
+                internal_cv_folds
+            ),
+            "outer_cv_folds": int(
+                outer_cv_folds
+            ),
+            "n_repeats": int(n_repeats),
+            "validation_fraction": float(
+                validation_fraction
+            ),
+            "ks_representation": ks_representation,
+            "ks_pca_variance": float(
+                ks_pca_variance
+            ),
+            "method": method,
+            "property_name": dataset.property_name,
+            "units": dataset.units,
+            "transform": dataset.transform,
+            "model_role": "final_all_samples",
+        }
+
+        try:
+            cfg = prepare_region_config(
+                cfg,
+                dataset.wavenumbers,
+            )
+            splits, split_info = outer_splits(
+                dataset.X,
+                dataset.sample_ids,
+                dataset.group_labels,
+                cfg,
+            )
+        except Exception as exc:
+            records.append(
+                {
+                    "Property": dataset.property_name,
+                    "Method": method,
+                    "Status": "Fail",
+                    "Samples": dataset.unique_samples,
+                    "Groups": int(
+                        pd.Series(
+                            dataset.group_labels
+                        ).nunique()
+                    ),
+                    "Outer splits": 0,
+                    "Details": str(exc),
+                }
+            )
+        else:
+            records.append(
+                {
+                    "Property": dataset.property_name,
+                    "Method": method,
+                    "Status": "Pass",
+                    "Samples": dataset.unique_samples,
+                    "Groups": int(
+                        pd.Series(
+                            dataset.group_labels
+                        ).nunique()
+                    ),
+                    "Outer splits": len(splits),
+                    "Details": split_info.get(
+                        "splitter",
+                        method,
+                    ),
+                }
+            )
+
+    return pd.DataFrame(records)
