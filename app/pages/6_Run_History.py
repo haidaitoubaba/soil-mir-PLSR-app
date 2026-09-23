@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from soil_mir.reporting import list_run_history
+from soil_mir.services.history import load_saved_run
 
 
 st.set_page_config(
@@ -86,6 +87,33 @@ for manifest in history:
         error = manifest.get("error", "")
         if error:
             st.error(error)
+
+        if manifest.get("results"):
+            if st.button(
+                "Open this run in Results",
+                key=f"open_history_{manifest.get('run_id')}",
+            ):
+                try:
+                    loaded = load_saved_run(manifest)
+                except Exception as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state["soil_mir_results"] = loaded
+                    st.session_state["soil_mir_last_run_dir"] = (
+                        manifest.get("run_dir", "")
+                    )
+                    comparison = (
+                        Path(manifest.get("run_dir", ""))
+                        / "Validation_Comparison.xlsx"
+                    )
+                    st.session_state[
+                        "soil_mir_last_comparison"
+                    ] = (
+                        str(comparison)
+                        if comparison.is_file()
+                        else ""
+                    )
+                    st.switch_page("pages/4_Results.py")
 
         result_rows = []
         for result in manifest.get("results", []):
