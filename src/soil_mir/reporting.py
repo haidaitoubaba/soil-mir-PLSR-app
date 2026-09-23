@@ -357,6 +357,7 @@ def initialize_run_manifest(
         "properties": list(properties),
         "methods": list(methods),
         "results": [],
+        "failures": [],
         "error": "",
     }
     write_json(run_dir / RUN_MANIFEST_NAME, manifest)
@@ -403,14 +404,45 @@ def record_run_result(
     return manifest
 
 
+def record_run_failure(
+    run_dir: str | Path,
+    *,
+    property_name: str,
+    method: str,
+    error: str,
+) -> dict:
+    manifest = read_run_manifest(run_dir)
+    failures = manifest.setdefault("failures", [])
+    failures.append(
+        {
+            "property": str(property_name),
+            "method": str(method),
+            "error": str(error),
+            "recorded_at": _utc_now(),
+        }
+    )
+    manifest["updated_at"] = _utc_now()
+    write_json(Path(run_dir) / RUN_MANIFEST_NAME, manifest)
+    return manifest
+
+
 def finalize_run_manifest(
     run_dir: str | Path,
     *,
     status: str,
     error: str = "",
 ) -> dict:
-    if status not in {"completed", "failed", "cancelled"}:
-        raise ValueError("Run status must be completed, failed, or cancelled.")
+    valid_statuses = {
+        "completed",
+        "completed_with_errors",
+        "failed",
+        "cancelled",
+    }
+    if status not in valid_statuses:
+        raise ValueError(
+            "Run status must be completed, completed_with_errors, "
+            "failed, or cancelled."
+        )
     manifest = read_run_manifest(run_dir)
     manifest["status"] = status
     manifest["error"] = str(error)
