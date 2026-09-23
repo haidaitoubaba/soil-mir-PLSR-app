@@ -31,6 +31,21 @@ if last_run:
     st.success(
         f"Saved locally: {last_run}"
     )
+    comparison = st.session_state.get(
+        "soil_mir_last_comparison"
+    )
+    if comparison:
+        comparison_path = Path(comparison)
+        if comparison_path.is_file():
+            st.download_button(
+                "Download validation comparison workbook",
+                data=comparison_path.read_bytes(),
+                file_name=comparison_path.name,
+                mime=(
+                    "application/vnd.openxmlformats-"
+                    "officedocument.spreadsheetml.sheet"
+                ),
+            )
 
 summary_rows = []
 for result in results.values():
@@ -147,6 +162,45 @@ for result in results.values():
             y="Predicted",
         )
 
+        residuals = result["predictions"][
+            ["Predicted", "Residual"]
+        ]
+        st.subheader("Residuals")
+        st.scatter_chart(
+            residuals,
+            x="Predicted",
+            y="Residual",
+        )
+
+        final_search = result["final_search"]
+        selected_path = final_search[
+            (final_search["Region"] == final_settings["Region"])
+            & (
+                final_search["Preprocessing"]
+                == final_settings["Preprocessing"]
+            )
+            & (final_search["Status"] == "Success")
+        ][["Rank", "RMSECV"]].sort_values("Rank")
+        if not selected_path.empty:
+            st.subheader("Selected model rank path")
+            st.line_chart(
+                selected_path,
+                x="Rank",
+                y="RMSECV",
+            )
+
+        folds = result["folds"]
+        if (
+            "Validation RMSE" in folds.columns
+            and folds["Validation RMSE"].notna().any()
+        ):
+            st.subheader("Outer-split RMSE")
+            st.bar_chart(
+                folds,
+                x="Outer Split",
+                y="Validation RMSE",
+            )
+
         st.subheader(
             "Saved artifacts"
         )
@@ -163,6 +217,12 @@ for result in results.values():
             )
             model = Path(
                 artifacts["model"]
+            )
+            plots_pdf = Path(
+                artifacts.get("plots_pdf", "")
+            )
+            metadata = Path(
+                artifacts.get("metadata", "")
             )
             if workbook.is_file():
                 st.download_button(
@@ -186,6 +246,28 @@ for result in results.values():
                     mime="application/octet-stream",
                     key=(
                         f"model_{result['property']}_"
+                        f"{result['method']}"
+                    ),
+                )
+            if plots_pdf.is_file():
+                st.download_button(
+                    "Download validation plots PDF",
+                    data=plots_pdf.read_bytes(),
+                    file_name=plots_pdf.name,
+                    mime="application/pdf",
+                    key=(
+                        f"plots_{result['property']}_"
+                        f"{result['method']}"
+                    ),
+                )
+            if metadata.is_file():
+                st.download_button(
+                    "Download model metadata",
+                    data=metadata.read_bytes(),
+                    file_name=metadata.name,
+                    mime="application/json",
+                    key=(
+                        f"metadata_{result['property']}_"
                         f"{result['method']}"
                     ),
                 )
