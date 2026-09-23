@@ -52,6 +52,28 @@ def run_data_acceptance(
         file_sets[property_name] = set(
             frame["File Name"].dropna().astype(str)
         )
+        numeric_reference = pd.to_numeric(
+            frame["Reference Value"],
+            errors="coerce",
+        )
+        zero_samples = sorted(
+            frame.loc[
+                numeric_reference == 0,
+                "Sample",
+            ]
+            .dropna()
+            .astype(str)
+            .unique()
+        )
+        negative_samples = sorted(
+            frame.loc[
+                numeric_reference < 0,
+                "Sample",
+            ]
+            .dropna()
+            .astype(str)
+            .unique()
+        )
 
         dataset = load_calibration_dataset(
             spectra_dir,
@@ -92,8 +114,14 @@ def run_data_acceptance(
                 "Zero refs": (
                     summary.zero_reference_values
                 ),
+                "Zero ref samples": "; ".join(
+                    zero_samples
+                ),
                 "Negative refs": (
                     summary.negative_reference_values
+                ),
+                "Negative ref samples": "; ".join(
+                    negative_samples
                 ),
                 "Duplicate rows": (
                     summary.duplicate_rows
