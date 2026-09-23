@@ -25,7 +25,8 @@ def validate_window_count(value) -> int:
         or not 1 <= value <= 16
     ):
         raise ValueError(
-            "region_search_n_windows must be an integer from 1 to 16; search grows as 2**N - 1."
+            "region_search_n_windows must be an integer from 1 to 16; "
+            "search grows as 2**N - 1."
         )
     return int(value)
 
@@ -68,6 +69,8 @@ def prepare_region_config(cfg: dict, wavenumbers: np.ndarray) -> dict:
     regions = {}
     step = float(np.median(np.abs(np.diff(axis))))
     for name, intervals in definitions.items():
+        if not isinstance(name, str) or not name.strip() or not intervals:
+            raise ValueError("Each region needs a nonempty name and a list of intervals.")
         mask = np.zeros(len(axis), dtype=bool)
         requested = []
         for interval in intervals:
@@ -78,10 +81,15 @@ def prepare_region_config(cfg: dict, wavenumbers: np.ndarray) -> dict:
                 raise ValueError(f"Region {name!r} contains a zero-width interval.")
             requested.append([low, high])
             mask |= (axis >= low) & (axis <= high)
+
         indices = np.flatnonzero(mask)
         selected_axis = axis[indices]
-        breaks = (np.diff(indices) > 1) | (np.abs(np.diff(selected_axis)) > 1.5 * step)
-        segments = np.split(selected_axis, np.flatnonzero(breaks) + 1) if len(indices) else []
+        breaks = (np.diff(indices) > 1) | (
+            np.abs(np.diff(selected_axis)) > 1.5 * step
+        )
+        segments = (
+            np.split(selected_axis, np.flatnonzero(breaks) + 1) if len(indices) else []
+        )
         lengths = [len(segment) for segment in segments]
         actual = [[float(segment[0]), float(segment[-1])] for segment in segments]
         description = "; ".join(f"{a:.6f}–{b:.6f}" for a, b in actual) or "No retained points"
@@ -98,8 +106,10 @@ def prepare_region_config(cfg: dict, wavenumbers: np.ndarray) -> dict:
             "label": description,
             "error": reason,
         }
+
     if all(region["error"] for region in regions.values()):
         raise ValueError("No candidate region has sufficiently long spectral intervals.")
+
     return dict(
         cfg,
         _regions=regions,
@@ -108,25 +118,46 @@ def prepare_region_config(cfg: dict, wavenumbers: np.ndarray) -> dict:
     )
 
 
+def region_metadata(name: str, region: dict) -> dict:
+    return {
+        "Region": name,
+        "Regions (cm-1)": region["label"],
+        "Spectral Points": len(region["indices"]),
+    }
+
+
 def select_region(X: np.ndarray, cfg: dict, name: str) -> tuple[np.ndarray, dict]:
     region = cfg["_regions"][name]
     if region["error"]:
         raise ValueError(region["error"])
-    return X[:, region["indices"]], dict(cfg, _segment_lengths=region["segment_lengths"])
+    return X[:, region["indices"]], dict(
+        cfg,
+        _segment_lengths=region["segment_lengths"],
+    )
 
 
-def choose_with_tolerance(frame: pd.DataFrame, error_column: str, tolerance: float) -> tuple:
+def choose_with_tolerance(
+    frame: pd.DataFrame,
+    error_column: str,
+    tolerance: float,
+) -> tuple:
     tolerance = validate_tolerance(tolerance)
-    eligible = frame[np.isfinite(frame[error_column]) & (frame[error_column] >= 0)].copy()
+    eligible = frame[
+        np.isfinite(frame[error_column]) & (frame[error_column] >= 0)
+    ].copy()
     if "Eligible" in eligible:
         eligible = eligible[eligible["Eligible"]]
     if eligible.empty:
         raise RuntimeError("No eligible finite candidate is available for selection.")
+
     minimum = float(eligible[error_column].min())
     threshold = minimum * (1 + tolerance / 100)
     within = eligible[eligible[error_column] <= threshold]
-    best = within.sort_values(["Rank", error_column, "Preprocessing", "Region"]).iloc[0]
+    best = within.sort_values(
+        ["Rank", error_column, "Preprocessing", "Region"]
+    ).iloc[0]
     increase = 100 * (float(best[error_column]) / minimum - 1) if minimum > 0 else 0.0
+
     return best, {
         "Tolerance (%)": tolerance,
         "Minimum RMSECV": minimum,
