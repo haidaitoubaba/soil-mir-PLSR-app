@@ -11,6 +11,7 @@ from soil_mir.reporting import (
     export_validation_result,
     finalize_run_manifest,
     initialize_run_manifest,
+    record_run_failure,
     record_run_result,
     write_json,
 )
@@ -259,43 +260,45 @@ if st.button(
     results = {}
     total = len(properties) * len(methods)
     completed = 0
+    failed_count = 0
     progress = st.progress(0.0)
     progress_note = st.empty()
 
-    try:
-        for property_sheet in properties:
-            dataset = datasets[property_sheet]
-            with st.status(
-                f"Running {property_sheet}",
-                expanded=True,
-            ) as status:
-                for method in methods:
-                    st.write(
-                        f"Running {property_sheet} / {method}..."
+    for property_sheet in properties:
+        dataset = datasets[property_sheet]
+        property_failures = 0
+        with st.status(
+            f"Running {property_sheet}",
+            expanded=True,
+        ) as status:
+            for method in methods:
+                st.write(
+                    f"Running {property_sheet} / {method}..."
+                )
+
+                def method_progress(
+                    step,
+                    step_total,
+                    message,
+                    property_name=property_sheet,
+                    method_name=method,
+                ):
+                    within = (
+                        step / step_total
+                        if step_total
+                        else 0.0
+                    )
+                    progress.progress(
+                        min(
+                            (completed + within) / total,
+                            1.0,
+                        )
+                    )
+                    progress_note.caption(
+                        f"{property_name} / {method_name}: {message}"
                     )
 
-                    def method_progress(
-                        step,
-                        step_total,
-                        message,
-                        property_name=property_sheet,
-                        method_name=method,
-                    ):
-                        within = (
-                            step / step_total
-                            if step_total
-                            else 0.0
-                        )
-                        progress.progress(
-                            min(
-                                (completed + within) / total,
-                                1.0,
-                            )
-                        )
-                        progress_note.caption(
-                            f"{property_name} / {method_name}: {message}"
-                        )
-
+                try:
                     result = run_validation_analysis(
                         dataset,
                         method=method,
@@ -316,46 +319,90 @@ if st.button(
                     results[
                         f"{property_sheet}::{method}"
                     ] = result
-
+                except Exception as exc:
+                    failed_count += 1
+                    property_failures += 1
+                    record_run_failure(
+                        run_dir,
+                        property_name=property_sheet,
+                        method=method,
+                        error=str(exc),
+                    )
+                    st.error(
+                        f"{property_sheet} / {method} failed: {exc}"
+                    )
+                finally:
                     completed += 1
                     progress.progress(
                         completed / total
                     )
 
+            if property_failures:
+                status.update(
+                    label=(
+                        f"{property_sheet} finished with "
+                        f"{property_failures} error(s)"
+                    ),
+                    state="error",
+                    expanded=True,
+                )
+            else:
                 status.update(
                     label=f"{property_sheet} complete",
                     state="complete",
                     expanded=False,
                 )
-    except Exception as exc:
+
+    if not results:
         finalize_run_manifest(
             run_dir,
             status="failed",
-            error=str(exc),
+            error="Every selected analysis failed.",
         )
         progress_note.caption(
-            "Run failed. Completed analyses were preserved."
+            "Run failed. No analysis completed successfully."
         )
-        st.exception(exc)
+        st.error(
+            "Every selected property/method analysis failed. "
+            "See the errors above and Run History for details."
+        )
         st.stop()
 
     comparison_path = export_validation_comparison(
         results,
         run_dir,
     )
+    final_status = (
+        "completed_with_errors"
+        if failed_count
+        else "completed"
+    )
     finalize_run_manifest(
         run_dir,
-        status="completed",
+        status=final_status,
     )
     progress.progress(1.0)
-    progress_note.caption("Run complete.")
+    progress_note.caption(
+        "Run complete."
+        if not failed_count
+        else (
+            f"Run finished with {failed_count} failed "
+            "analysis combination(s). Successful results were preserved."
+        )
+    )
 
     st.session_state["soil_mir_results"] = results
     st.session_state["soil_mir_last_run_dir"] = str(
         run_dir
     )
     st.session_state["soil_mir_last_comparison"] = comparison_path
-    st.success(
-        "Validation completed and saved to "
-        f"{run_dir}. Open the Results page."
-    )
+    if failed_count:
+        st.warning(
+            "Validation finished with some errors. Successful analyses "
+            f"were saved to {run_dir}. Open Results or Run History."
+        )
+    else:
+        st.success(
+            "Validation completed and saved to "
+            f"{run_dir}. Open the Results page."
+        )
