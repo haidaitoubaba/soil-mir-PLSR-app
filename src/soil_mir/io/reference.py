@@ -19,6 +19,8 @@ class PropertySummary:
     unique_samples: int
     groups: int
     missing_reference_values: int
+    zero_reference_values: int
+    negative_reference_values: int
     duplicate_rows: int
     reference_min: float | None
     reference_max: float | None
@@ -150,6 +152,8 @@ def summarize_property(
         unique_samples=int(frame[columns.sample_id].nunique(dropna=True)),
         groups=int(frame[columns.group].nunique(dropna=True)),
         missing_reference_values=int(numeric.isna().sum()),
+        zero_reference_values=int((numeric == 0).sum()),
+        negative_reference_values=int((numeric < 0).sum()),
         duplicate_rows=int(frame.duplicated().sum()),
         reference_min=float(nonempty.min()) if len(nonempty) else None,
         reference_max=float(nonempty.max()) if len(nonempty) else None,
