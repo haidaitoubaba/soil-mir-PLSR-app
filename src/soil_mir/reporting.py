@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
@@ -38,7 +38,10 @@ def _json_default(value):
 
 
 def write_json(path: str | Path, payload: dict) -> None:
-    Path(path).write_text(
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
         json.dumps(
             payload,
             indent=2,
@@ -46,6 +49,7 @@ def write_json(path: str | Path, payload: dict) -> None:
         ),
         encoding="utf-8",
     )
+    temporary.replace(path)
 
 
 def public_config(cfg: dict) -> dict:
@@ -163,3 +167,121 @@ def export_validation_result(
         "config": str(config_path),
         "split_info": str(split_path),
     }
+
+
+RUN_MANIFEST_NAME = "Run_Manifest.json"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def initialize_run_manifest(
+    run_dir: str | Path,
+    *,
+    properties: list[str],
+    methods: list[str],
+    spectra_dir: str,
+    reference_excel: str,
+) -> dict:
+    run_dir = Path(run_dir)
+    manifest = {
+        "version": 1,
+        "run_id": run_dir.name,
+        "created_at": _utc_now(),
+        "updated_at": _utc_now(),
+        "status": "running",
+        "spectra_dir": str(spectra_dir),
+        "reference_excel": str(reference_excel),
+        "properties": list(properties),
+        "methods": list(methods),
+        "results": [],
+        "error": "",
+    }
+    write_json(run_dir / RUN_MANIFEST_NAME, manifest)
+    return manifest
+
+
+def read_run_manifest(run_dir: str | Path) -> dict:
+    path = Path(run_dir) / RUN_MANIFEST_NAME
+    if not path.is_file():
+        raise FileNotFoundError(f"Run manifest not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        raise ValueError(f"Unsupported run manifest: {path}")
+    return payload
+
+
+def record_run_result(
+    run_dir: str | Path,
+    result: dict,
+    artifacts: dict[str, str],
+) -> dict:
+    manifest = read_run_manifest(run_dir)
+    summary = result["summary"].set_index("Metric")
+    final_settings = result["final_settings"]
+    record = {
+        "property": result["property"],
+        "method": result["method"],
+        "metrics": {
+            metric: float(summary.loc[metric, "Value"])
+            for metric in ("R2", "RMSE", "RPIQ", "Bias")
+        },
+        "final_model": {
+            "preprocessing": final_settings["Preprocessing"],
+            "region": final_settings["Region"],
+            "rank": int(final_settings["Rank"]),
+        },
+        "validation_samples": int(result["unique_validation_samples"]),
+        "elapsed_seconds": float(result["elapsed_seconds"]),
+        "artifacts": dict(artifacts),
+    }
+    manifest["results"].append(record)
+    manifest["updated_at"] = _utc_now()
+    write_json(Path(run_dir) / RUN_MANIFEST_NAME, manifest)
+    return manifest
+
+
+def finalize_run_manifest(
+    run_dir: str | Path,
+    *,
+    status: str,
+    error: str = "",
+) -> dict:
+    if status not in {"completed", "failed", "cancelled"}:
+        raise ValueError("Run status must be completed, failed, or cancelled.")
+    manifest = read_run_manifest(run_dir)
+    manifest["status"] = status
+    manifest["error"] = str(error)
+    manifest["updated_at"] = _utc_now()
+    manifest["finished_at"] = _utc_now()
+    write_json(Path(run_dir) / RUN_MANIFEST_NAME, manifest)
+    return manifest
+
+
+def list_run_history(output_base: str | Path) -> list[dict]:
+    root = Path(output_base).expanduser()
+    if not root.is_dir():
+        return []
+
+    history = []
+    for run_dir in root.iterdir():
+        if not run_dir.is_dir() or run_dir.name.startswith("."):
+            continue
+        path = run_dir / RUN_MANIFEST_NAME
+        if not path.is_file():
+            continue
+        try:
+            manifest = read_run_manifest(run_dir)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        manifest = dict(manifest)
+        manifest["run_dir"] = str(run_dir)
+        manifest["result_count"] = len(manifest.get("results", []))
+        history.append(manifest)
+
+    return sorted(
+        history,
+        key=lambda item: item.get("created_at", ""),
+        reverse=True,
+    )
