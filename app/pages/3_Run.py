@@ -7,10 +7,12 @@ import streamlit as st
 
 from soil_mir.reporting import (
     create_run_directory,
+    export_validation_comparison,
     export_validation_result,
     finalize_run_manifest,
     initialize_run_manifest,
     record_run_result,
+    write_json,
 )
 from soil_mir.services.calibration import (
     load_calibration_dataset,
@@ -242,6 +244,17 @@ if st.button(
         spectra_dir=st.session_state["soil_mir_spectra_dir"],
         reference_excel=st.session_state["soil_mir_reference_excel"],
     )
+    write_json(
+        run_dir / "Run_Config.json",
+        {
+            "properties": properties,
+            "methods": methods,
+            "spectra_dir": st.session_state["soil_mir_spectra_dir"],
+            "reference_excel": st.session_state["soil_mir_reference_excel"],
+            "output_dir": st.session_state["soil_mir_output_dir"],
+            "analysis_settings": settings,
+        },
+    )
 
     results = {}
     total = len(properties) * len(methods)
@@ -326,6 +339,10 @@ if st.button(
         st.exception(exc)
         st.stop()
 
+    comparison_path = export_validation_comparison(
+        results,
+        run_dir,
+    )
     finalize_run_manifest(
         run_dir,
         status="completed",
@@ -337,6 +354,7 @@ if st.button(
     st.session_state["soil_mir_last_run_dir"] = str(
         run_dir
     )
+    st.session_state["soil_mir_last_comparison"] = comparison_path
     st.success(
         "Validation completed and saved to "
         f"{run_dir}. Open the Results page."
