@@ -79,7 +79,25 @@ def test_acceptance_reuses_shared_files_and_writes_report(
         acceptance,
         "read_property_sheet",
         lambda _path, _prop: pd.DataFrame(
-            {"File Name": filenames}
+            {
+                "File Name": filenames,
+                "Sample": [
+                    "A",
+                    "A",
+                    "A",
+                    "B",
+                    "B",
+                    "B",
+                ],
+                "Reference Value": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    2.0,
+                    2.0,
+                    2.0,
+                ],
+            }
         ),
     )
 
@@ -138,6 +156,14 @@ def test_acceptance_reuses_shared_files_and_writes_report(
         alignment["Identical file set"]
     )
     assert alignment["Shared files"] == 6
+    assert table.loc[
+        "202_STC",
+        "Zero ref samples",
+    ] == "A"
+    assert table.loc[
+        "202_STN",
+        "Zero ref samples",
+    ] == "A"
     assert Path(
         result["report_path"]
     ).is_file()
