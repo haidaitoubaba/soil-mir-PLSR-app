@@ -71,13 +71,15 @@ All repository builds, dependency installation for development, linting, scienti
 startup smoke tests are automated in GitLab CI.
 
 
-## v0.2.0 cross-platform release candidate
+## v0.2.1 cross-platform release candidate
 
-The repository version is `0.2.0`. GitLab CI builds deterministic release artifacts for both
-supported desktop platforms after the validation and quality gates pass:
+The repository version is `0.2.1`. This patch release makes `Group` optional in reference
+property sheets except when Leave-One-Group-Out (LOGO) validation is selected. GitLab CI builds
+deterministic release artifacts for both supported desktop platforms after the validation and
+quality gates pass:
 
-- macOS: `soil-mir-app-v0.2.0-<label>-mac.tar.gz`
-- Windows: `soil-mir-app-v0.2.0-<label>-windows.zip`
+- macOS: `soil-mir-app-v0.2.1-<label>-mac.tar.gz`
+- Windows: `soil-mir-app-v0.2.1-<label>-windows.zip`
 
 Both distributions contain the same application and scientific engine. The platform wrappers only
 handle local Python discovery, virtual-environment startup, native path dialogs, browser launch, and
@@ -87,5 +89,5 @@ The distributions remain local-first Python packages. Target computers need Pyth
 internet access on first launch for dependency installation. The macOS package is not a
 signed/notarized standalone `.app`, and the Windows package is not a standalone installer.
 
-Before tagging `v0.2.0`, complete the relevant checks in `RELEASE_CHECKLIST.md` and
+Before tagging `v0.2.1`, complete the relevant checks in `RELEASE_CHECKLIST.md` and
 `WINDOWS_RELEASE_CHECKLIST.md` using generated CI artifacts.
