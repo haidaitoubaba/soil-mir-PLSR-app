@@ -63,6 +63,11 @@ for manifest in history:
                 manifest.get("methods", [])
             ),
             "Completed analyses": len(results),
+            "Pending analyses": len(
+                pending_run_keys(
+                    manifest
+                )
+            ),
             "Failed analyses": len(manifest.get("failures", [])),
             "Directory": manifest.get("run_dir", ""),
         }
@@ -272,14 +277,51 @@ for manifest in history:
                         ),
                     )
                 if model_path.is_file():
-                    st.download_button(
-                        f"Download {property_name} {method} model",
-                        data=model_path.read_bytes(),
-                        file_name=model_path.name,
-                        mime="application/octet-stream",
-                        key=(
-                            f"history_model_"
-                            f"{manifest.get('run_id')}_"
-                            f"{property_name}_{method}"
-                        ),
+                    model_download_col, model_predict_col = st.columns(
+                        2
                     )
+                    with model_download_col:
+                        st.download_button(
+                            f"Download {property_name} {method} model",
+                            data=model_path.read_bytes(),
+                            file_name=model_path.name,
+                            mime="application/octet-stream",
+                            key=(
+                                f"history_model_"
+                                f"{manifest.get('run_id')}_"
+                                f"{property_name}_{method}"
+                            ),
+                            use_container_width=True,
+                        )
+                    with model_predict_col:
+                        if st.button(
+                            f"Use {property_name} {method} in Predict",
+                            key=(
+                                f"history_predict_"
+                                f"{manifest.get('run_id')}_"
+                                f"{property_name}_{method}"
+                            ),
+                            use_container_width=True,
+                        ):
+                            st.session_state[
+                                "soil_mir_predict_model_input"
+                            ] = str(model_path)
+                            st.session_state[
+                                "soil_mir_predict_output_input"
+                            ] = str(
+                                Path(output_dir).expanduser()
+                            )
+                            st.session_state[
+                                "soil_mir_predict_selected_history_model"
+                            ] = {
+                                "run_id": manifest.get(
+                                    "run_id",
+                                    "",
+                                ),
+                                "property": property_name,
+                                "method": method,
+                                "path": str(model_path),
+                            }
+                            st.switch_page(
+                                "pages/5_Predict.py"
+                            )

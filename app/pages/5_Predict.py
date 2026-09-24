@@ -85,6 +85,17 @@ if "soil_mir_predict_output_input" not in st.session_state:
         preferences.get("output_dir", ""),
     )
 
+selected_history_model = st.session_state.get(
+    "soil_mir_predict_selected_history_model"
+)
+if selected_history_model:
+    st.success(
+        "Model selected from Run History: "
+        f"{selected_history_model.get('property', '')} / "
+        f"{selected_history_model.get('method', '')} "
+        f"({selected_history_model.get('run_id', '')})"
+    )
+
 if historical_models:
     model_options = {
         item["label"]: item["path"]
@@ -115,6 +126,31 @@ if historical_models:
         ] = model_options[
             selected_model_label
         ]
+        selected_item = next(
+            item
+            for item in historical_models
+            if item["label"] == selected_model_label
+        )
+        st.session_state[
+            "soil_mir_predict_selected_history_model"
+        ] = {
+            "run_id": selected_item.get(
+                "run_id",
+                "",
+            ),
+            "property": selected_item.get(
+                "property",
+                "",
+            ),
+            "method": selected_item.get(
+                "method",
+                "",
+            ),
+            "path": selected_item.get(
+                "path",
+                "",
+            ),
+        }
         st.rerun()
 else:
     st.caption(
@@ -141,6 +177,10 @@ with model_browse_col:
                 st.session_state[
                     "soil_mir_predict_model_input"
                 ] = str(selected)
+                st.session_state.pop(
+                    "soil_mir_predict_selected_history_model",
+                    None,
+                )
 with model_col:
     model_path = st.text_input(
         "Model bundle (.joblib)",
