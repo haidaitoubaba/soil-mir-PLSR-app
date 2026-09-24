@@ -344,7 +344,7 @@ def test_saved_model_list_uses_existing_history_models(
     ]
     assert (
         models[0]["label"]
-        == "newest | 202_STC | kfold | rank 7"
+        == "newest | 202_STC | K-fold Cross-Validation | rank 7"
     )
 
 
