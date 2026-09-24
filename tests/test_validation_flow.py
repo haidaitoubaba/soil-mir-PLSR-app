@@ -318,6 +318,8 @@ def test_outer_validation_designs_keep_replicates_together(
         axis,
         method=method,
     )
+    if method == "monte_carlo":
+        cfg["validation_fraction"] = 0.50
 
     splits, _ = outer_splits(
         X,
@@ -364,6 +366,7 @@ def test_monte_carlo_splits_are_reproducible():
         axis,
         method="monte_carlo",
     )
+    cfg["validation_fraction"] = 0.50
 
     first, first_info = outer_splits(
         X,
@@ -410,6 +413,8 @@ def _light_method_config(
             "outer_n_jobs": 1,
         }
     )
+    if method == "monte_carlo":
+        cfg["validation_fraction"] = 0.50
     return prepare_region_config(
         cfg,
         axis,

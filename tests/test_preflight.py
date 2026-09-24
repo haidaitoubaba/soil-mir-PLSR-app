@@ -64,6 +64,8 @@ def _settings():
 
 
 def test_preflight_accepts_feasible_methods():
+    settings = _settings()
+    settings["validation_fraction"] = 0.50
     frame = preflight_validation_methods(
         _dataset(groups=4),
         methods=[
@@ -73,7 +75,7 @@ def test_preflight_accepts_feasible_methods():
             "logo",
             "kennard_stone",
         ],
-        **_settings(),
+        **settings,
     )
 
     assert set(frame["Status"]) == {"Pass"}
