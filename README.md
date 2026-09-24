@@ -49,13 +49,17 @@ property/method combination:
 Run History reads those manifests, so completed analyses remain discoverable after Streamlit is
 closed.
 
-## Mac launcher
+## Cross-platform launchers
 
-On macOS, `run_app.command` is the local launcher. It verifies Python 3.10+, creates or repairs a
-project-local `.venv` when needed, clearly reports first-run dependency installation progress,
-installs/updates dependencies when `pyproject.toml` changes, and starts Streamlit. After the first
-setup, repeated launches reuse the same environment. If setup fails, the launcher keeps the error
-visible so the Terminal output can be copied for troubleshooting.
+The environment/bootstrap logic now lives in `scripts/launch_app.py` and is shared across platforms.
+It verifies Python 3.10+, creates or repairs a project-local `.venv`, reports first-run dependency
+installation progress, installs/updates dependencies when `pyproject.toml` changes, and starts
+Streamlit.
+
+On macOS, double-click `run_app.command`. On Windows, double-click `run_app.bat`; an optional
+`run_app.ps1` launcher is also provided. Repeated launches reuse the same environment. Platform
+wrappers contain only Python discovery and user-facing terminal behavior, so the setup logic is not
+duplicated between macOS and Windows.
 
 Developers can still launch with:
 
@@ -80,3 +84,19 @@ access on first launch for dependency installation. It is not yet a signed/notar
 
 Before promoting an RC to the final v0.1.0 release, complete `RELEASE_CHECKLIST.md` using the CI
 ZIP artifact on a clean or representative Mac.
+
+
+## Windows MVP release candidate
+
+GitLab CI builds a deterministic Windows ZIP artifact alongside the macOS package. The Windows bundle
+contains the application source, the shared launcher core, `run_app.bat`, `run_app.ps1`, build
+metadata, and Windows validation instructions. Development tests, CI files, virtual environments, and
+research data are excluded.
+
+The Windows MVP remains a local-first Python distribution. The target machine needs Python 3.10+ and
+internet access on first launch. The recommended user entry point is `run_app.bat`; no standalone
+installer is included yet.
+
+The current GitLab runners are Linux-based, so CI can test the shared launcher logic and inspect the
+Windows package but cannot execute Windows `cmd.exe` itself. Complete
+`WINDOWS_RELEASE_CHECKLIST.md` on a representative Windows machine before promoting a Windows RC.
