@@ -194,7 +194,7 @@ def main() -> int:
         return 0
 
     archive = build_bundle(ROOT / args.output_dir, args.label, args.commit)
-    print(archive.relative_to(ROOT))
+    print(archive)
     return 0
 
 
