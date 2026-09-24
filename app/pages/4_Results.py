@@ -13,6 +13,16 @@ from soil_mir.plotting import (
 from soil_mir.regions import (
     build_tolerance_comparison,
 )
+from soil_mir.services.history import (
+    load_run_config,
+    run_config_session_values,
+)
+from soil_mir.services.profiles import (
+    profile_widget_updates,
+)
+from soil_mir.services.refit import (
+    refit_saved_run_tolerance,
+)
 
 st.set_page_config(
     page_title="Results | Soil MIR PLSR",
@@ -188,6 +198,342 @@ for result in results.values():
             use_container_width=True,
             hide_index=True,
         )
+
+        tolerance_options = [
+            int(value)
+            for value in tolerance_comparison[
+                "Tolerance (%)"
+            ].tolist()
+        ]
+        source_tolerance = float(
+            result.get(
+                "config",
+                {},
+            ).get(
+                "rmsecv_tolerance_pct",
+                0.0,
+            )
+        )
+        default_tolerance = (
+            int(source_tolerance)
+            if (
+                float(source_tolerance).is_integer()
+                and int(source_tolerance)
+                in tolerance_options
+            )
+            else tolerance_options[0]
+        )
+        result_key = (
+            f"{result['property']}::"
+            f"{result['method']}"
+        )
+        selected_tolerance = st.selectbox(
+            "Tolerance to use",
+            tolerance_options,
+            index=tolerance_options.index(
+                default_tolerance
+            ),
+            format_func=lambda value: (
+                f"{value}%"
+            ),
+            key=(
+                "tolerance_choice_"
+                f"{result_key}"
+            ),
+            help=(
+                "Choose one of the 0–10% sensitivity rows above. "
+                "This does not change the original saved validation run."
+            ),
+        )
+
+        use_col, refit_col = st.columns(2)
+        with use_col:
+            if st.button(
+                "Use this tolerance in Configuration",
+                key=(
+                    "use_tolerance_"
+                    f"{result_key}"
+                ),
+                use_container_width=True,
+                disabled=not bool(
+                    last_run
+                ),
+            ):
+                try:
+                    source_config = (
+                        load_run_config(
+                            last_run
+                        )
+                    )
+                    session_values = (
+                        run_config_session_values(
+                            source_config,
+                            run_dir=last_run,
+                        )
+                    )
+                    session_values[
+                        "soil_mir_tolerance"
+                    ] = float(
+                        selected_tolerance
+                    )
+                    widget_values = (
+                        profile_widget_updates(
+                            session_values,
+                            session_values.get(
+                                "soil_mir_selected_properties",
+                                [],
+                            ),
+                        )
+                    )
+                    widget_values[
+                        "cfg_tolerance"
+                    ] = float(
+                        selected_tolerance
+                    )
+                    st.session_state.update(
+                        session_values
+                    )
+                    st.session_state.update(
+                        widget_values
+                    )
+                    for key in (
+                        "soil_mir_preflight_table",
+                        "soil_mir_preflight_datasets",
+                        "soil_mir_preflight_passed",
+                        "soil_mir_preflight_signature",
+                    ):
+                        st.session_state.pop(
+                            key,
+                            None,
+                        )
+                except Exception as exc:
+                    st.error(
+                        "Could not load the source run configuration."
+                    )
+                    st.exception(exc)
+                else:
+                    st.success(
+                        f"Configuration now uses {selected_tolerance}% tolerance "
+                        "with the source run's other settings. "
+                        "Preflight must be run again before a full validation rerun."
+                    )
+
+        refit_state_key = (
+            "soil_mir_final_refit_"
+            f"{result_key}_"
+            f"{selected_tolerance}"
+        )
+        with refit_col:
+            if st.button(
+                "Refit final model only",
+                key=(
+                    "refit_tolerance_"
+                    f"{result_key}"
+                ),
+                type="primary",
+                use_container_width=True,
+                disabled=not bool(
+                    last_run
+                ),
+                help=(
+                    "Re-run only the final all-data calibration search/refit "
+                    "at the selected tolerance. Outer validation is not rerun."
+                ),
+            ):
+                try:
+                    with st.status(
+                        (
+                            f"Refitting {result['property']} / "
+                            f"{result['method']} at "
+                            f"{selected_tolerance}%"
+                        ),
+                        expanded=True,
+                    ) as refit_status:
+                        st.write(
+                            "Reloading the source run's calibration data and settings..."
+                        )
+                        refit = (
+                            refit_saved_run_tolerance(
+                                last_run,
+                                property_name=(
+                                    result[
+                                        "property"
+                                    ]
+                                ),
+                                method=result[
+                                    "method"
+                                ],
+                                tolerance_pct=float(
+                                    selected_tolerance
+                                ),
+                            )
+                        )
+                        refit_status.update(
+                            label=(
+                                "Final-only refit complete"
+                            ),
+                            state="complete",
+                            expanded=False,
+                        )
+                    st.session_state[
+                        refit_state_key
+                    ] = {
+                        "property": refit[
+                            "property"
+                        ],
+                        "method": refit[
+                            "method"
+                        ],
+                        "tolerance": refit[
+                            "refit_tolerance_pct"
+                        ],
+                        "source_tolerance": refit[
+                            "source_validation_tolerance_pct"
+                        ],
+                        "final_settings": dict(
+                            refit[
+                                "final_settings"
+                            ]
+                        ),
+                        "artifacts": dict(
+                            refit[
+                                "artifacts"
+                            ]
+                        ),
+                        "source_run_dir": refit[
+                            "source_run_dir"
+                        ],
+                    }
+                except Exception as exc:
+                    st.error(
+                        "Final-only refit failed."
+                    )
+                    st.exception(exc)
+
+        st.caption(
+            "A final-only refit does not replace the outer-validation metrics "
+            f"shown above. Those metrics remain from the original "
+            f"{source_tolerance:g}% validation run."
+        )
+
+        refit_state = st.session_state.get(
+            refit_state_key
+        )
+        if refit_state:
+            refit_settings = refit_state[
+                "final_settings"
+            ]
+            refit_artifacts = refit_state[
+                "artifacts"
+            ]
+            st.success(
+                (
+                    f"Saved {refit_state['tolerance']:g}% final-only refit: "
+                    f"{refit_settings['Preprocessing']} | "
+                    f"{refit_settings['Region']} | "
+                    f"rank {int(refit_settings['Rank'])}"
+                )
+            )
+            st.code(
+                refit_artifacts[
+                    "directory"
+                ]
+            )
+            refit_model = Path(
+                refit_artifacts["model"]
+            )
+            refit_workbook = Path(
+                refit_artifacts[
+                    "workbook"
+                ]
+            )
+            download_model_col, download_search_col, predict_col = (
+                st.columns(3)
+            )
+            with download_model_col:
+                if refit_model.is_file():
+                    st.download_button(
+                        "Download refit model",
+                        data=refit_model.read_bytes(),
+                        file_name=(
+                            refit_model.name
+                        ),
+                        mime=(
+                            "application/octet-stream"
+                        ),
+                        key=(
+                            "download_refit_model_"
+                            f"{result_key}_"
+                            f"{selected_tolerance}"
+                        ),
+                        use_container_width=True,
+                    )
+            with download_search_col:
+                if refit_workbook.is_file():
+                    st.download_button(
+                        "Download refit selection",
+                        data=(
+                            refit_workbook.read_bytes()
+                        ),
+                        file_name=(
+                            refit_workbook.name
+                        ),
+                        mime=(
+                            "application/vnd.openxmlformats-"
+                            "officedocument.spreadsheetml.sheet"
+                        ),
+                        key=(
+                            "download_refit_search_"
+                            f"{result_key}_"
+                            f"{selected_tolerance}"
+                        ),
+                        use_container_width=True,
+                    )
+            with predict_col:
+                if (
+                    refit_model.is_file()
+                    and st.button(
+                        "Use refit model in Predict",
+                        key=(
+                            "predict_refit_"
+                            f"{result_key}_"
+                            f"{selected_tolerance}"
+                        ),
+                        use_container_width=True,
+                    )
+                ):
+                    st.session_state[
+                        "soil_mir_predict_model_input"
+                    ] = str(
+                        refit_model
+                    )
+                    st.session_state[
+                        "soil_mir_predict_selected_history_model"
+                    ] = {
+                        "run_id": Path(
+                            refit_state[
+                                "source_run_dir"
+                            ]
+                        ).name,
+                        "property": result[
+                            "property"
+                        ],
+                        "method": result[
+                            "method"
+                        ],
+                        "path": str(
+                            refit_model
+                        ),
+                        "model_role": (
+                            "final_only_refit"
+                        ),
+                        "refit_tolerance_pct": float(
+                            selected_tolerance
+                        ),
+                    }
+                    st.switch_page(
+                        "pages/5_Predict.py"
+                    )
 
         predictions = result[
             "predictions"
