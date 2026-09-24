@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from soil_mir.methods import (
+    validation_method_label,
+)
+
 from soil_mir.reporting import (
     create_run_directory,
     export_validation_comparison,
@@ -194,7 +198,8 @@ def execute_validation_run(
                     progress_callback,
                     completed / total,
                     (
-                        f"{property_sheet} / {method}: "
+                        f"{property_sheet} / "
+                        f"{validation_method_label(method)}: "
                         "starting nested validation"
                     ),
                 )
@@ -220,7 +225,8 @@ def execute_validation_run(
                         / total,
                         (
                             f"{property_name} / "
-                            f"{method_name}: {message}"
+                            f"{validation_method_label(method_name)}: "
+                            f"{message}"
                         ),
                     )
 
@@ -272,7 +278,8 @@ def execute_validation_run(
                         progress_callback,
                         completed / total,
                         (
-                            f"{property_sheet} / {method} "
+                            f"{property_sheet} / "
+                            f"{validation_method_label(method)} "
                             f"failed: {exc}"
                         ),
                     )

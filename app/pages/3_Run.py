@@ -12,6 +12,9 @@ from soil_mir.reporting import (
 from soil_mir.services.history import (
     pending_run_keys,
 )
+from soil_mir.methods import (
+    validation_method_label,
+)
 from soil_mir.services.calibration import (
     load_calibration_dataset,
     preflight_validation_methods,
@@ -156,7 +159,14 @@ st.write(
     f"Properties: **{', '.join(properties)}**"
 )
 st.write(
-    f"Validation methods: **{', '.join(methods)}**"
+    "Validation methods: **"
+    + ", ".join(
+        validation_method_label(
+            method
+        )
+        for method in methods
+    )
+    + "**"
 )
 st.write(
     "Results directory: "
@@ -430,10 +440,19 @@ preflight_passed = bool(
 )
 
 if preflight_exists:
+    preflight_display = st.session_state[
+        "soil_mir_preflight_table"
+    ].copy()
+    if "Method" in preflight_display.columns:
+        preflight_display["Method"] = (
+            preflight_display[
+                "Method"
+            ].map(
+                validation_method_label
+            )
+        )
     st.dataframe(
-        st.session_state[
-            "soil_mir_preflight_table"
-        ],
+        preflight_display,
         use_container_width=True,
         hide_index=True,
     )

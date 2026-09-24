@@ -8,6 +8,11 @@ from soil_mir.config import (
     SpectralConfig,
     ValidationConfig,
 )
+from soil_mir.methods import (
+    VALIDATION_METHOD_LABELS,
+    validation_method_description,
+    validation_method_label,
+)
 from soil_mir.services.profiles import (
     PROFILE_WIDGET_KEYS,
     delete_profile,
@@ -348,17 +353,27 @@ with left:
 with right:
     validation_methods = st.multiselect(
         "Validation methods",
-        [
-            "kfold",
-            "monte_carlo",
-            "loso",
-            "logo",
-            "kennard_stone",
-        ],
+        list(
+            VALIDATION_METHOD_LABELS
+        ),
         key=PROFILE_WIDGET_KEYS[
             "soil_mir_validation_methods"
         ],
+        format_func=validation_method_label,
+        help=(
+            "Choose one or more outer-validation designs. "
+            "The full names shown here are display labels; "
+            "saved method keys remain unchanged for compatibility."
+        ),
     )
+    with st.expander(
+        "What do these validation methods mean?"
+    ):
+        for method in VALIDATION_METHOD_LABELS:
+            st.markdown(
+                f"**{validation_method_label(method)}** — "
+                f"{validation_method_description(method)}"
+            )
     region_windows = st.number_input(
         "Region search windows",
         min_value=1,
