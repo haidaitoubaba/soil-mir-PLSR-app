@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from soil_mir.services.profiles import (
+    delete_profile,
     list_profiles,
     load_profile,
     profile_widget_updates,
@@ -108,3 +109,52 @@ def test_profile_widget_updates_restore_all_saved_controls():
     assert updates["ref_max_202_STC"] == "30.0"
     assert updates["ref_min_202_STN"] == ""
     assert updates["ref_max_202_STN"] == ""
+
+
+
+def test_delete_profile_removes_only_selected_profile(
+    tmp_path: Path,
+):
+    first = save_profile(
+        tmp_path,
+        "first",
+        {"soil_mir_max_rank": 5},
+    )
+    second = save_profile(
+        tmp_path,
+        "second",
+        {"soil_mir_max_rank": 10},
+    )
+    history_dir = tmp_path / "20260924_010203"
+    history_dir.mkdir()
+    history_file = history_dir / "Run_Manifest.json"
+    history_file.write_text(
+        '{"status":"completed"}',
+        encoding="utf-8",
+    )
+
+    deleted = delete_profile(
+        tmp_path,
+        "first",
+    )
+
+    assert deleted == first
+    assert not first.exists()
+    assert second.exists()
+    assert history_file.exists()
+    assert list(list_profiles(tmp_path)) == [
+        "second"
+    ]
+
+
+def test_delete_missing_profile_is_rejected(
+    tmp_path: Path,
+):
+    with pytest.raises(
+        FileNotFoundError,
+        match="Configuration profile not found",
+    ):
+        delete_profile(
+            tmp_path,
+            "missing",
+        )

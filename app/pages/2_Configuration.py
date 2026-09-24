@@ -10,6 +10,7 @@ from soil_mir.config import (
 )
 from soil_mir.services.profiles import (
     PROFILE_WIDGET_KEYS,
+    delete_profile,
     list_profiles,
     load_profile,
     profile_widget_updates,
@@ -170,45 +171,127 @@ if output_dir:
             selected_profile = st.selectbox(
                 "Profile",
                 list(profiles),
+                key="configuration_profile_selector",
             )
-            if st.button(
-                "Load selected profile",
-                key="load_configuration_profile",
-            ):
-                try:
-                    loaded = load_profile(
-                        profiles[selected_profile]
-                    )
-                except Exception as exc:
-                    st.error(str(exc))
-                else:
-                    allowed = {
-                        key: value
-                        for key, value in loaded.items()
-                        if key in PROFILE_SESSION_KEYS
-                    }
-                    if "soil_mir_selected_properties" in allowed:
-                        allowed[
-                            "soil_mir_selected_properties"
-                        ] = [
-                            prop
-                            for prop in allowed[
+            load_col, delete_col = st.columns(
+                [3, 2]
+            )
+            with load_col:
+                if st.button(
+                    "Load selected profile",
+                    key="load_configuration_profile",
+                    use_container_width=True,
+                ):
+                    try:
+                        loaded = load_profile(
+                            profiles[selected_profile]
+                        )
+                    except Exception as exc:
+                        st.error(str(exc))
+                    else:
+                        allowed = {
+                            key: value
+                            for key, value in loaded.items()
+                            if key in PROFILE_SESSION_KEYS
+                        }
+                        if "soil_mir_selected_properties" in allowed:
+                            allowed[
                                 "soil_mir_selected_properties"
+                            ] = [
+                                prop
+                                for prop in allowed[
+                                    "soil_mir_selected_properties"
+                                ]
+                                if prop in available_properties
                             ]
-                            if prop in available_properties
-                        ]
-                    if "soil_mir_wn_range" in allowed:
-                        allowed["soil_mir_wn_range"] = tuple(
-                            allowed["soil_mir_wn_range"]
+                        if "soil_mir_wn_range" in allowed:
+                            allowed[
+                                "soil_mir_wn_range"
+                            ] = tuple(
+                                allowed[
+                                    "soil_mir_wn_range"
+                                ]
+                            )
+                        st.session_state.update(
+                            allowed
                         )
-                    st.session_state.update(allowed)
-                    st.session_state.update(
-                        profile_widget_updates(
-                            allowed,
-                            available_properties,
+                        st.session_state.update(
+                            profile_widget_updates(
+                                allowed,
+                                available_properties,
+                            )
                         )
+                        st.session_state.pop(
+                            "soil_mir_profile_delete_pending",
+                            None,
+                        )
+                        st.rerun()
+
+            with delete_col:
+                if st.button(
+                    "Delete selected profile",
+                    key="delete_configuration_profile",
+                    use_container_width=True,
+                ):
+                    st.session_state[
+                        "soil_mir_profile_delete_pending"
+                    ] = selected_profile
+
+            pending_delete = st.session_state.get(
+                "soil_mir_profile_delete_pending"
+            )
+            if pending_delete:
+                if pending_delete not in profiles:
+                    st.session_state.pop(
+                        "soil_mir_profile_delete_pending",
+                        None,
                     )
                     st.rerun()
+
+                st.warning(
+                    "Delete configuration profile "
+                    f"**{pending_delete}**? "
+                    "This deletes only its saved profile JSON. "
+                    "Run history, models, and result files are not affected."
+                )
+                confirm_col, cancel_col = st.columns(
+                    2
+                )
+                with confirm_col:
+                    if st.button(
+                        "Confirm delete",
+                        key="confirm_delete_configuration_profile",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        try:
+                            delete_profile(
+                                output_dir,
+                                pending_delete,
+                            )
+                        except Exception as exc:
+                            st.error(str(exc))
+                        else:
+                            st.session_state.pop(
+                                "soil_mir_profile_delete_pending",
+                                None,
+                            )
+                            st.session_state.pop(
+                                "configuration_profile_selector",
+                                None,
+                            )
+                            st.rerun()
+                with cancel_col:
+                    if st.button(
+                        "Cancel",
+                        key="cancel_delete_configuration_profile",
+                        use_container_width=True,
+                    ):
+                        st.session_state.pop(
+                            "soil_mir_profile_delete_pending",
+                            None,
+                        )
+                        st.rerun()
         else:
             st.caption(
                 "No saved profiles yet. Validate settings below, "

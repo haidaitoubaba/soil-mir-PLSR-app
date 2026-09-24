@@ -112,6 +112,24 @@ def save_profile(
     return path
 
 
+def delete_profile(
+    output_dir: str | Path,
+    name: str,
+) -> Path:
+    """Delete exactly one saved configuration profile."""
+    safe_name = _safe_profile_name(name)
+    path = (
+        profile_directory(output_dir)
+        / f"{safe_name}.json"
+    )
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Configuration profile not found: {path}"
+        )
+    path.unlink()
+    return path
+
+
 def load_profile(path: str | Path) -> dict:
     path = Path(path)
     if not path.is_file():
