@@ -556,3 +556,86 @@ def test_final_only_refit_changes_tolerance_without_outer_validation():
     assert not refit[
         "final_search"
     ].empty
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "kfold",
+        "monte_carlo",
+        "loso",
+        "kennard_stone",
+    ],
+)
+def test_outer_splits_work_without_group_labels(
+    method,
+):
+    X, _, keys, labels, axis = _dataset(
+        groups=4
+    )
+    labels = np.full(
+        labels.shape,
+        "",
+        dtype=object,
+    )
+    cfg = _config(
+        axis,
+        method=method,
+    )
+    if method == "monte_carlo":
+        cfg["validation_fraction"] = 0.50
+
+    splits, info = outer_splits(
+        X,
+        keys,
+        labels,
+        cfg,
+    )
+
+    assert splits
+    assert (
+        info["group_labels_complete"]
+        is False
+    )
+    for train, test in splits:
+        assert not (
+            set(keys[train])
+            & set(keys[test])
+        )
+
+    if method == "kfold":
+        assert (
+            info["splitter"]
+            == "Shuffled sample KFold"
+        )
+    if method == "monte_carlo":
+        assert (
+            info["splitter"]
+            == "ShuffleSplit(sample)"
+        )
+
+
+def test_logo_rejects_missing_group_labels():
+    X, _, keys, labels, axis = _dataset(
+        groups=4
+    )
+    labels = np.full(
+        labels.shape,
+        "",
+        dtype=object,
+    )
+    cfg = _config(
+        axis,
+        method="logo",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="requires a Group column",
+    ):
+        outer_splits(
+            X,
+            keys,
+            labels,
+            cfg,
+        )

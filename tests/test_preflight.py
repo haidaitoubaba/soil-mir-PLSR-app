@@ -6,7 +6,11 @@ from soil_mir.services.calibration import (
 )
 
 
-def _dataset(groups=4):
+def _dataset(
+    groups=4,
+    include_groups=True,
+    partial_groups=False,
+):
     rng = np.random.default_rng(20260923)
     axis = np.linspace(600, 4000, 64)
     rows = []
@@ -27,7 +31,13 @@ def _dataset(groups=4):
             )
             y.append(1.0 + index * 0.25)
             samples.append(f"S{index:02d}")
-            labels.append(str(index % groups))
+            if include_groups:
+                label = str(index % groups)
+                if partial_groups and index == 0:
+                    label = ""
+            else:
+                label = ""
+            labels.append(label)
 
     return CalibrationDataset(
         X=np.asarray(rows),
@@ -98,3 +108,59 @@ def test_preflight_surfaces_infeasible_logo():
 
     assert frame.iloc[0]["Status"] == "Fail"
     assert "at least three treatments" in frame.iloc[0]["Details"]
+
+
+def test_preflight_allows_non_group_methods_without_group():
+    settings = _settings()
+    settings["validation_fraction"] = 0.50
+    frame = preflight_validation_methods(
+        _dataset(
+            include_groups=False,
+        ),
+        methods=[
+            "kfold",
+            "monte_carlo",
+            "loso",
+            "kennard_stone",
+        ],
+        **settings,
+    )
+
+    assert set(frame["Status"]) == {"Pass"}
+    assert set(frame["Groups"]) == {0}
+    assert set(frame["Group data"]) == {
+        "Not provided"
+    }
+
+
+def test_preflight_logo_requires_complete_group():
+    frame = preflight_validation_methods(
+        _dataset(
+            include_groups=False,
+        ),
+        methods=["logo"],
+        **_settings(),
+    )
+
+    assert frame.iloc[0]["Status"] == "Fail"
+    assert (
+        "requires a Group column"
+        in frame.iloc[0]["Details"]
+    )
+
+
+def test_preflight_partial_group_falls_back_for_kfold():
+    frame = preflight_validation_methods(
+        _dataset(
+            partial_groups=True,
+        ),
+        methods=["kfold"],
+        **_settings(),
+    )
+
+    assert frame.iloc[0]["Status"] == "Pass"
+    assert frame.iloc[0]["Group data"] == "Partial"
+    assert (
+        frame.iloc[0]["Details"]
+        == "Shuffled sample KFold"
+    )

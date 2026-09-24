@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pandas as pd
+
 from soil_mir.io.reference import (
     discover_property_sheets,
     load_property_metadata,
@@ -52,3 +54,41 @@ def test_property_summary():
     assert summary.negative_reference_values == 0
     assert summary.reference_min > 0
     assert summary.reference_max > summary.reference_min
+
+
+def test_reference_group_column_is_optional(tmp_path):
+    workbook = tmp_path / "reference_no_group.xlsx"
+    frame = pd.DataFrame(
+        {
+            "Sample": ["S1", "S2"],
+            "Reference Value": [1.0, 2.0],
+            "File Name": ["S1.0", "S2.0"],
+        }
+    )
+    with pd.ExcelWriter(
+        workbook,
+        engine="openpyxl",
+    ) as writer:
+        frame.to_excel(
+            writer,
+            sheet_name="STC",
+            index=False,
+        )
+
+    assert discover_property_sheets(
+        workbook
+    ) == ["STC"]
+
+    loaded = read_property_sheet(
+        workbook,
+        "STC",
+    )
+    assert "Group" not in loaded.columns
+
+    summary = summarize_property(
+        workbook,
+        "STC",
+    )
+    assert summary.group_column_present is False
+    assert summary.groups is None
+    assert summary.missing_group_values == 0
