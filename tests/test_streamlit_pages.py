@@ -28,3 +28,9 @@ def test_streamlit_page_renders_without_exception(path):
     assert not messages, (
         f"{path} raised Streamlit exceptions: {messages}"
     )
+
+
+def test_cancelled_run_guidance_points_only_to_run_history():
+    source = (ROOT / "app" / "pages" / "3_Run.py").read_text(encoding="utf-8")
+    assert "Resume this run from Run History." in source
+    assert "Use Resume on this page or in Run History." not in source

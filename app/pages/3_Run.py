@@ -758,7 +758,7 @@ if last_outcome:
         st.warning(
             "Validation cancelled safely. "
             f"{len(pending)} analysis combination(s) remain pending. "
-            "Use Resume on this page or in Run History."
+            "Resume this run from Run History."
         )
         if run_dir:
             st.write(
