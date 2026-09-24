@@ -67,3 +67,65 @@ def test_windows_batch_version_check_uses_literal_comparison():
     batch = (ROOT / "run_app.bat").read_text(encoding="utf-8")
     assert "sys.version_info >= (3, 10)" in batch
     assert "^>=" not in batch
+
+
+
+def test_start_streamlit_waits_for_health_then_opens_browser(tmp_path, monkeypatch):
+    commands = []
+    opened = []
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+        def wait(self):
+            return 0
+
+        def terminate(self):
+            raise AssertionError("healthy process should not be terminated")
+
+    def fake_popen(command, cwd):
+        commands.append((command, cwd))
+        return FakeProcess()
+
+    monkeypatch.setattr(LAUNCHER, "find_available_port", lambda: 8765)
+    monkeypatch.setattr(LAUNCHER.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        LAUNCHER,
+        "wait_for_streamlit",
+        lambda health_url, process: opened.append(("health", health_url)),
+    )
+    monkeypatch.setattr(
+        LAUNCHER,
+        "open_default_browser",
+        lambda url: opened.append(("browser", url)) or True,
+    )
+
+    result = LAUNCHER.start_streamlit(tmp_path, tmp_path / "python")
+
+    assert result == 0
+    command, cwd = commands[0]
+    assert cwd == tmp_path
+    assert "--server.headless=true" in command
+    assert "--server.address=127.0.0.1" in command
+    assert "--server.port=8765" in command
+    assert opened == [
+        ("health", "http://127.0.0.1:8765/_stcore/health"),
+        ("browser", "http://127.0.0.1:8765"),
+    ]
+
+
+def test_windows_browser_open_uses_startfile(monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        LAUNCHER.os,
+        "startfile",
+        lambda url: opened.append(url),
+        raising=False,
+    )
+
+    assert LAUNCHER.open_default_browser(
+        "http://127.0.0.1:8501",
+        platform_name="win32",
+    )
+    assert opened == ["http://127.0.0.1:8501"]

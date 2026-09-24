@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import socket
 import subprocess
 import sys
+import time
+import urllib.request
+import webbrowser
 from pathlib import Path
 
 
@@ -89,23 +94,105 @@ def ensure_dependencies(root: Path, venv_python: Path) -> None:
         print("[3/4] Dependencies: already up to date")
 
 
+def find_available_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def wait_for_streamlit(
+    health_url: str,
+    process: subprocess.Popen,
+    *,
+    timeout: float = 30.0,
+) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+
+    while time.monotonic() < deadline:
+        return_code = process.poll()
+        if return_code is not None:
+            raise RuntimeError(
+                f"Streamlit exited before becoming ready (exit code {return_code})."
+            )
+
+        try:
+            with urllib.request.urlopen(health_url, timeout=2) as response:
+                body = response.read().decode("utf-8", "replace")
+                if response.status == 200 and "ok" in body.lower():
+                    return
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.25)
+
+    detail = f": {last_error}" if last_error else ""
+    raise RuntimeError(f"Streamlit did not become ready within {timeout:g} seconds{detail}")
+
+
+def open_default_browser(url: str, platform_name: str | None = None) -> bool:
+    platform_name = platform_name or sys.platform
+    try:
+        if platform_name == "win32":
+            startfile = getattr(os, "startfile", None)
+            if startfile is not None:
+                startfile(url)
+                return True
+        if platform_name == "darwin":
+            completed = subprocess.run(
+                ["open", url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if completed.returncode == 0:
+                return True
+        return bool(webbrowser.open(url, new=2))
+    except OSError:
+        return False
+
+
 def start_streamlit(root: Path, venv_python: Path) -> int:
+    port = find_available_port()
+    app_url = f"http://127.0.0.1:{port}"
+    health_url = f"{app_url}/_stcore/health"
+
     print("[4/4] Starting Soil MIR...")
     print("      Keep this terminal window open while using the app.")
-    print("      Your browser should open automatically.")
+    print(f"      App URL: {app_url}")
     print()
-    completed = subprocess.run(
+
+    process = subprocess.Popen(
         [
             str(venv_python),
             "-m",
             "streamlit",
             "run",
             str(root / "app" / "Home.py"),
+            "--server.headless=true",
+            "--server.address=127.0.0.1",
+            f"--server.port={port}",
         ],
         cwd=root,
-        check=False,
     )
-    return int(completed.returncode)
+
+    try:
+        wait_for_streamlit(health_url, process)
+        print("Soil MIR is ready.")
+        if open_default_browser(app_url):
+            print("Opened Soil MIR in your default browser.")
+        else:
+            print("Could not open the browser automatically.")
+            print(f"Open this address manually: {app_url}")
+        print()
+        return int(process.wait())
+    except KeyboardInterrupt:
+        process.terminate()
+        process.wait()
+        raise
+    except Exception:
+        process.terminate()
+        process.wait()
+        raise
 
 
 def main() -> int:
