@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import stat
 import subprocess
 import sys
-import zipfile
+import tarfile
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_mac_release_bundle_contains_only_distribution_files(tmp_path: Path) -> None:
+def test_mac_release_bundle_preserves_launcher_permission_after_extract(tmp_path: Path) -> None:
     output_dir = tmp_path / "dist"
     completed = subprocess.run(
         [
@@ -28,11 +29,14 @@ def test_mac_release_bundle_contains_only_distribution_files(tmp_path: Path) -> 
         text=True,
     )
 
-    archive = ROOT / completed.stdout.strip()
+    archive = Path(completed.stdout.strip())
     assert archive.exists()
+    assert archive.name.endswith(".tar.gz")
 
-    with zipfile.ZipFile(archive) as handle:
-        names = handle.namelist()
+    extract_dir = tmp_path / "extracted"
+    extract_dir.mkdir()
+    with tarfile.open(archive, "r:gz") as handle:
+        names = handle.getnames()
         roots = {name.split("/", 1)[0] for name in names}
         assert len(roots) == 1
         bundle_root = roots.pop()
@@ -44,5 +48,10 @@ def test_mac_release_bundle_contains_only_distribution_files(tmp_path: Path) -> 
         assert not any(name.startswith(f"{bundle_root}/tests/") for name in names)
         assert f"{bundle_root}/.gitlab-ci.yml" not in names
 
-        launcher = handle.getinfo(f"{bundle_root}/run_app.command")
-        assert ((launcher.external_attr >> 16) & 0o777) == 0o755
+        launcher_member = handle.getmember(f"{bundle_root}/run_app.command")
+        assert launcher_member.mode == 0o755
+        handle.extractall(extract_dir)
+
+    launcher = extract_dir / bundle_root / "run_app.command"
+    assert launcher.exists()
+    assert stat.S_IMODE(launcher.stat().st_mode) == 0o755

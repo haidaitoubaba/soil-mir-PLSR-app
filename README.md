@@ -69,8 +69,8 @@ startup smoke tests are automated in GitLab CI.
 
 ## macOS release candidate
 
-The repository version is `0.1.0`. GitLab CI now builds a deterministic macOS RC ZIP after the
-validation and quality gates pass. The artifact contains the application source, `pyproject.toml`,
+The repository version is `0.1.0`. GitLab CI now builds a deterministic macOS RC tar.gz archive after the
+validation and quality gates pass. The tar.gz artifact contains the application source, `pyproject.toml`,
 the executable `run_app.command` launcher, release instructions, and build metadata; development
 tests, CI files, local environments, and research data are excluded.
 
