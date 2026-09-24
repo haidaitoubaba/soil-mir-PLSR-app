@@ -90,8 +90,8 @@ if detected_layout is not None:
             st.rerun()
 
 st.caption(
-    "Choose any local folders/files below. On macOS, the Browse buttons "
-    "open the native Finder picker; paths can also be typed or pasted."
+    "Choose any local folders/files below. On macOS and Windows, the Browse "
+    "buttons open the native system picker; paths can also be typed or pasted."
 )
 
 spectra_path_col, spectra_choose_col = st.columns(

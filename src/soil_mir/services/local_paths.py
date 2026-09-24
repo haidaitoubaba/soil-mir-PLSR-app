@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -161,41 +162,14 @@ def _applescript_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def choose_local_path(
-    kind: str,
-    *,
-    prompt: str,
-    platform_name: str | None = None,
-) -> Path | None:
-    """Open a native local file/folder chooser on macOS.
-
-    Manual path entry remains available in the Streamlit UI, so unsupported
-    platforms are never required to use this helper.
-    """
-    platform_value = (
-        sys.platform
-        if platform_name is None
-        else platform_name
-    )
-    if platform_value != "darwin":
-        raise RuntimeError(
-            "Native path browsing is currently available on macOS only. "
-            "Enter the path manually on this platform."
-        )
-
+def _choose_macos_path(kind: str, prompt: str) -> Path | None:
     safe_prompt = _applescript_string(prompt)
     if kind == "directory":
-        chooser = (
-            f'choose folder with prompt "{safe_prompt}"'
-        )
+        chooser = f'choose folder with prompt "{safe_prompt}"'
     elif kind == "file":
-        chooser = (
-            f'choose file with prompt "{safe_prompt}"'
-        )
+        chooser = f'choose file with prompt "{safe_prompt}"'
     else:
-        raise ValueError(
-            "kind must be 'directory' or 'file'."
-        )
+        raise ValueError("kind must be 'directory' or 'file'.")
 
     script = f"POSIX path of ({chooser})"
     completed = subprocess.run(
@@ -216,42 +190,140 @@ def choose_local_path(
     return Path(selected) if selected else None
 
 
+def _windows_picker_script(kind: str) -> str:
+    if kind == "directory":
+        return """
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = $env:SOIL_MIR_PICKER_PROMPT
+$dialog.ShowNewFolderButton = $true
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+    $bytes = [Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)
+    [Console]::Write([Convert]::ToBase64String($bytes))
+    exit 0
+}
+exit 2
+""".strip()
+
+    if kind == "file":
+        return """
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = $env:SOIL_MIR_PICKER_PROMPT
+$dialog.Multiselect = $false
+$dialog.Filter = "All files (*.*)|*.*"
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+    $bytes = [Text.Encoding]::UTF8.GetBytes($dialog.FileName)
+    [Console]::Write([Convert]::ToBase64String($bytes))
+    exit 0
+}
+exit 2
+""".strip()
+
+    raise ValueError("kind must be 'directory' or 'file'.")
+
+
+def _choose_windows_path(kind: str, prompt: str) -> Path | None:
+    environment = os.environ.copy()
+    environment["SOIL_MIR_PICKER_PROMPT"] = prompt
+
+    try:
+        completed = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-STA",
+                "-Command",
+                _windows_picker_script(kind),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            "Windows path chooser could not start. "
+            "Enter the path manually or confirm Windows PowerShell is available."
+        ) from exc
+
+    if completed.returncode == 2:
+        return None
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "Windows path chooser failed: "
+            f"{completed.stderr.strip() or 'unknown error'}"
+        )
+
+    encoded = completed.stdout.strip()
+    if not encoded:
+        return None
+    try:
+        selected = base64.b64decode(encoded).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise RuntimeError("Windows path chooser returned an invalid path.") from exc
+    return Path(selected)
+
+
+def choose_local_path(
+    kind: str,
+    *,
+    prompt: str,
+    platform_name: str | None = None,
+) -> Path | None:
+    """Open a native local file/folder chooser on supported desktop platforms."""
+    platform_value = sys.platform if platform_name is None else platform_name
+
+    if platform_value == "darwin":
+        return _choose_macos_path(kind, prompt)
+    if platform_value == "win32":
+        return _choose_windows_path(kind, prompt)
+
+    raise RuntimeError(
+        "Native path browsing is currently available on macOS and Windows. "
+        "Enter the path manually on this platform."
+    )
+
 
 def open_local_folder(
     path: str | Path,
     *,
     platform_name: str | None = None,
 ) -> Path:
-    """Open a local directory in the platform file manager.
-
-    macOS is the supported desktop target for the current MVP.
-    """
+    """Open a local directory in Finder or Windows Explorer."""
     folder = Path(path).expanduser()
     if not folder.is_dir():
-        raise FileNotFoundError(
-            f"Results folder not found: {folder}"
-        )
+        raise FileNotFoundError(f"Results folder not found: {folder}")
 
-    platform_value = (
-        sys.platform
-        if platform_name is None
-        else platform_name
-    )
-    if platform_value != "darwin":
-        raise RuntimeError(
-            "Open results folder is currently available on macOS only. "
-            f"Folder: {folder}"
-        )
+    platform_value = sys.platform if platform_name is None else platform_name
 
-    completed = subprocess.run(
-        ["open", str(folder)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "Could not open the folder in Finder: "
-            f"{completed.stderr.strip() or 'unknown error'}"
+    if platform_value == "darwin":
+        completed = subprocess.run(
+            ["open", str(folder)],
+            capture_output=True,
+            text=True,
+            check=False,
         )
-    return folder
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "Could not open the folder in Finder: "
+                f"{completed.stderr.strip() or 'unknown error'}"
+            )
+        return folder
+
+    if platform_value == "win32":
+        startfile = getattr(os, "startfile", None)
+        if startfile is None:
+            raise RuntimeError("Windows Explorer integration is unavailable.")
+        try:
+            startfile(str(folder))
+        except OSError as exc:
+            raise RuntimeError(
+                f"Could not open the folder in Windows Explorer: {exc}"
+            ) from exc
+        return folder
+
+    raise RuntimeError(
+        "Open results folder is currently available on macOS and Windows. "
+        f"Folder: {folder}"
+    )

@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 from types import SimpleNamespace
@@ -174,10 +175,55 @@ def test_macos_native_picker_cancel_returns_none(
     assert selected is None
 
 
-def test_native_picker_requires_macos():
+def test_windows_native_picker_returns_unicode_path(monkeypatch):
+    selected_text = r"C:\\Soil 数据\\Spectra"
+    encoded = base64.b64encode(selected_text.encode("utf-8")).decode("ascii")
+
+    def fake_run(args, capture_output, text, check, env):
+        assert args[0] == "powershell.exe"
+        assert "-STA" in args
+        assert "FolderBrowserDialog" in args[-1]
+        assert capture_output
+        assert text
+        assert check is False
+        assert env["SOIL_MIR_PICKER_PROMPT"] == "Choose spectra"
+        return SimpleNamespace(returncode=0, stdout=encoded, stderr="")
+
+    monkeypatch.setattr(local_paths.subprocess, "run", fake_run)
+
+    selected = choose_local_path(
+        "directory",
+        prompt="Choose spectra",
+        platform_name="win32",
+    )
+
+    assert selected == Path(selected_text)
+
+
+def test_windows_native_picker_cancel_returns_none(monkeypatch):
+    monkeypatch.setattr(
+        local_paths.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=2,
+            stdout="",
+            stderr="",
+        ),
+    )
+
+    selected = choose_local_path(
+        "file",
+        prompt="Choose workbook",
+        platform_name="win32",
+    )
+
+    assert selected is None
+
+
+def test_native_picker_rejects_unsupported_desktop_platform():
     with pytest.raises(
         RuntimeError,
-        match="macOS only",
+        match="macOS and Windows",
     ):
         choose_local_path(
             "directory",
@@ -239,12 +285,33 @@ def test_open_local_folder_rejects_missing_directory(
         )
 
 
-def test_open_local_folder_reports_non_macos_path(
+def test_open_local_folder_uses_windows_explorer(
+    tmp_path,
+    monkeypatch,
+):
+    opened = []
+    monkeypatch.setattr(
+        local_paths.os,
+        "startfile",
+        lambda value: opened.append(value),
+        raising=False,
+    )
+
+    result = open_local_folder(
+        tmp_path,
+        platform_name="win32",
+    )
+
+    assert result == tmp_path
+    assert opened == [str(tmp_path)]
+
+
+def test_open_local_folder_reports_unsupported_platform(
     tmp_path,
 ):
     with pytest.raises(
         RuntimeError,
-        match="macOS only",
+        match="macOS and Windows",
     ):
         open_local_folder(
             tmp_path,

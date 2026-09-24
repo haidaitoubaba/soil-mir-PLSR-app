@@ -6,7 +6,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from soil_mir.io.cache import load_opus_spectra_cached
+from soil_mir.io.cache import OpusCacheStats, load_opus_spectra_cached
 from soil_mir.io.opus import (
     align_spectral_library,
     list_opus_files,
@@ -211,28 +211,147 @@ def resample_spectra_to_model_grid(
     )
 
 
+def _reference_filenames(
+    reference: pd.DataFrame,
+    *,
+    file_name_col: str = "File Name",
+) -> list[str]:
+    if file_name_col not in reference.columns:
+        raise KeyError(
+            f"Reference table is missing required column: {file_name_col}"
+        )
+    filenames = [
+        value
+        for value in (
+            reference[file_name_col]
+            .astype(str)
+            .str.strip()
+            .tolist()
+        )
+        if value
+    ]
+    return list(dict.fromkeys(filenames))
+
+
+def _load_readable_external_candidates(
+    spectra_dir: str | Path,
+    *,
+    cache_root: str | Path | None = None,
+) -> tuple[
+    dict[str, tuple[np.ndarray, np.ndarray]],
+    OpusCacheStats,
+]:
+    directory = Path(spectra_dir).expanduser()
+    if not directory.is_dir():
+        raise FileNotFoundError(
+            f"OPUS directory not found: {directory}"
+        )
+
+    candidates = sorted(
+        (
+            path
+            for path in directory.iterdir()
+            if path.is_file() and not path.name.startswith(".")
+        ),
+        key=lambda path: path.name,
+    )
+    if not candidates:
+        raise ValueError(
+            "The selected folder does not contain any files."
+        )
+
+    raw: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    hits = 0
+    misses = 0
+    failures: list[tuple[str, str]] = []
+    cache_path = None
+
+    for path in candidates:
+        try:
+            loaded, stats = load_opus_spectra_cached(
+                directory,
+                [path.name],
+                cache_root=cache_root,
+            )
+        except Exception as exc:
+            failures.append((path.name, str(exc)))
+            continue
+
+        raw.update(loaded)
+        hits += int(stats.hits)
+        misses += int(stats.misses)
+        if stats.cache_path is not None:
+            cache_path = stats.cache_path
+
+    if not raw:
+        detail = (
+            f" First file checked: {failures[0][0]} ({failures[0][1]})"
+            if failures
+            else ""
+        )
+        raise ValueError(
+            "No readable Bruker OPUS files were found in the selected folder. "
+            "Numeric extensions such as .0 or .1 are supported, and files with "
+            "other names are also accepted when they contain readable OPUS data."
+            + detail
+        )
+
+    return raw, OpusCacheStats(
+        hits=hits,
+        misses=misses,
+        requested=len(raw),
+        cache_path=cache_path,
+    )
+
+
 def load_external_opus_library(
     spectra_dir: str | Path,
     *,
+    filenames: list[str] | tuple[str, ...] | None = None,
     cache_root: str | Path | None = None,
 ) -> tuple[
     dict[str, np.ndarray],
     np.ndarray,
     object,
 ]:
-    """Load every OPUS file and align the external library on shared coverage."""
-    files = list_opus_files(spectra_dir)
-    if not files:
-        raise ValueError(
-            "No numeric-extension OPUS files were found."
-        )
+    """Load and align an external OPUS library.
 
-    filenames = [path.name for path in files]
-    raw, cache_stats = load_opus_spectra_cached(
-        spectra_dir,
-        filenames,
-        cache_root=cache_root,
-    )
+    When filenames are supplied by an external-validation reference table, load
+    exactly those files regardless of filename extension. Prediction-only mode
+    keeps the fast numeric-extension path, then falls back to probing regular
+    files for readable Bruker OPUS data when necessary.
+    """
+    if filenames is not None:
+        requested = list(
+            dict.fromkeys(
+                str(name).strip()
+                for name in filenames
+                if str(name).strip()
+            )
+        )
+        if not requested:
+            raise ValueError(
+                "The external reference does not contain any OPUS file names."
+            )
+        raw, cache_stats = load_opus_spectra_cached(
+            spectra_dir,
+            requested,
+            cache_root=cache_root,
+        )
+    else:
+        files = list_opus_files(spectra_dir)
+        if files:
+            raw, cache_stats = load_opus_spectra_cached(
+                spectra_dir,
+                [path.name for path in files],
+                cache_root=cache_root,
+            )
+        else:
+            raw, cache_stats = _load_readable_external_candidates(
+                spectra_dir,
+                cache_root=cache_root,
+            )
+
     raw_spectra = {
         name: values
         for name, (values, _axis) in raw.items()
@@ -418,9 +537,15 @@ def predict_opus_directory(
     cache_root: str | Path | None = None,
 ) -> dict:
     bundle = load_model_bundle(model_path)
+    reference_filenames = (
+        _reference_filenames(reference)
+        if reference is not None
+        else None
+    )
     spectra, raw_wavenumbers, cache_stats = (
         load_external_opus_library(
             spectra_dir,
+            filenames=reference_filenames,
             cache_root=cache_root,
         )
     )

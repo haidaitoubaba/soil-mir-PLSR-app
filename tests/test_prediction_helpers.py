@@ -324,3 +324,148 @@ def test_prediction_workbook_matches_authoritative_sheet_layout(
         "Property",
         "Value",
     ] == "STC"
+
+
+
+def test_external_library_accepts_reference_filenames_without_numeric_extension(
+    monkeypatch,
+    tmp_path,
+):
+    for name in ("sample_A.opus", "sample_B"):
+        (tmp_path / name).write_bytes(b"x")
+
+    axis = np.array([3000.0, 2000.0, 1000.0])
+    raw = {
+        "sample_A.opus": (np.array([3.0, 2.0, 1.0]), axis),
+        "sample_B": (np.array([4.0, 3.0, 2.0]), axis),
+    }
+    stats = SimpleNamespace(
+        hits=0,
+        misses=2,
+        requested=2,
+        cache_path=None,
+    )
+    calls = []
+
+    def fake_cached(directory, filenames, cache_root=None):
+        calls.append(list(filenames))
+        return (
+            {name: raw[name] for name in filenames},
+            stats,
+        )
+
+    monkeypatch.setattr(
+        prediction,
+        "load_opus_spectra_cached",
+        fake_cached,
+    )
+
+    spectra, returned_axis, returned_stats = (
+        prediction.load_external_opus_library(
+            tmp_path,
+            filenames=["sample_A.opus", "sample_B"],
+        )
+    )
+
+    assert calls == [["sample_A.opus", "sample_B"]]
+    assert set(spectra) == {"sample_A.opus", "sample_B"}
+    np.testing.assert_array_equal(returned_axis, axis)
+    assert returned_stats is stats
+
+
+def test_prediction_only_falls_back_to_readable_non_numeric_opus_files(
+    monkeypatch,
+    tmp_path,
+):
+    (tmp_path / "sample_A.opus").write_bytes(b"opus")
+    (tmp_path / "sample_B").write_bytes(b"opus")
+    (tmp_path / "notes.txt").write_text("not opus", encoding="utf-8")
+
+    axis = np.array([3000.0, 2000.0, 1000.0])
+
+    def fake_cached(directory, filenames, cache_root=None):
+        name = filenames[0]
+        if name == "notes.txt":
+            raise ValueError("not an OPUS file")
+        values = (
+            np.array([3.0, 2.0, 1.0])
+            if name == "sample_A.opus"
+            else np.array([4.0, 3.0, 2.0])
+        )
+        return (
+            {name: (values, axis)},
+            SimpleNamespace(
+                hits=0,
+                misses=1,
+                requested=1,
+                cache_path=None,
+            ),
+        )
+
+    monkeypatch.setattr(
+        prediction,
+        "load_opus_spectra_cached",
+        fake_cached,
+    )
+
+    spectra, returned_axis, stats = (
+        prediction.load_external_opus_library(tmp_path)
+    )
+
+    assert set(spectra) == {"sample_A.opus", "sample_B"}
+    np.testing.assert_array_equal(returned_axis, axis)
+    assert stats.misses == 2
+    assert stats.requested == 2
+
+
+def test_predict_opus_directory_uses_reference_file_names_for_loading(
+    monkeypatch,
+):
+    reference = pd.DataFrame(
+        {
+            "Sample": ["A", "B"],
+            "File Name": ["A.opus", "B"],
+            "Reference Value": [1.0, 2.0],
+        }
+    )
+    captured = {}
+
+    monkeypatch.setattr(
+        prediction,
+        "load_model_bundle",
+        lambda _path: _bundle([1000.0, 1001.0]),
+    )
+
+    def fake_load(_directory, *, filenames=None, cache_root=None):
+        captured["filenames"] = filenames
+        return (
+            {
+                "A.opus": np.array([1.0, 2.0]),
+                "B": np.array([2.0, 3.0]),
+            },
+            np.array([1000.0, 1001.0]),
+            SimpleNamespace(),
+        )
+
+    monkeypatch.setattr(
+        prediction,
+        "load_external_opus_library",
+        fake_load,
+    )
+    monkeypatch.setattr(
+        prediction,
+        "predict_external_dataset",
+        lambda *args, **kwargs: (
+            pd.DataFrame(),
+            pd.DataFrame(),
+            {},
+        ),
+    )
+
+    prediction.predict_opus_directory(
+        "model.joblib",
+        "spectra",
+        reference=reference,
+    )
+
+    assert captured["filenames"] == ["A.opus", "B"]
