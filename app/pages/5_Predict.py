@@ -6,6 +6,9 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from soil_mir.plotting import (
+    measured_vs_predicted_figure,
+)
 from soil_mir.services.local_paths import (
     choose_local_path,
     load_path_preferences,
@@ -449,10 +452,24 @@ if result:
         chart_frame = sample_predictions[
             ["Measured", "Predicted"]
         ].copy()
-        st.scatter_chart(
-            chart_frame,
-            x="Measured",
-            y="Predicted",
+        st.subheader(
+            "Measured vs predicted"
+        )
+        prediction_plot = (
+            measured_vs_predicted_figure(
+                chart_frame["Measured"],
+                chart_frame["Predicted"],
+                title=(
+                    f"{bundle.get('property_name', '')} "
+                    "— external validation"
+                ),
+                predicted_label="Predicted",
+            )
+        )
+        st.pyplot(
+            prediction_plot,
+            clear_figure=True,
+            use_container_width=False,
         )
 
     st.subheader("Sample predictions")

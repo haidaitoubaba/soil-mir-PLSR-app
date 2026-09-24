@@ -5,6 +5,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from soil_mir.plotting import (
+    measured_vs_predicted_figure,
+)
+
 st.set_page_config(
     page_title="Results | Soil MIR PLSR",
     page_icon="🌱",
@@ -156,10 +160,23 @@ for result in results.values():
         st.subheader(
             "Measured vs predicted"
         )
-        st.scatter_chart(
-            predictions,
-            x="Measured",
-            y="Predicted",
+        measured_plot = (
+            measured_vs_predicted_figure(
+                predictions["Measured"],
+                predictions["Predicted"],
+                title=(
+                    f"{result['property']} — "
+                    f"{result['method']}"
+                ),
+                predicted_label=(
+                    "Validation predicted"
+                ),
+            )
+        )
+        st.pyplot(
+            measured_plot,
+            clear_figure=True,
+            use_container_width=False,
         )
 
         residuals = result["predictions"][

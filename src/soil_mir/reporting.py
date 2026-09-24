@@ -8,6 +8,10 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from soil_mir.plotting import (
+    measured_vs_predicted_figure,
+)
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -111,21 +115,16 @@ def _export_validation_plots(
     title = f"{result['property']} — {result['method']}"
 
     with PdfPages(pdf_path) as pdf:
-        fig, ax = plt.subplots(figsize=(7, 6))
-        ax.scatter(measured, predicted, alpha=0.7)
-        low = float(min(measured.min(), predicted.min()))
-        high = float(max(measured.max(), predicted.max()))
-        pad = max((high - low) * 0.05, 1e-6)
-        ax.plot(
-            [low - pad, high + pad],
-            [low - pad, high + pad],
-            linestyle="--",
+        fig = measured_vs_predicted_figure(
+            measured,
+            predicted,
+            title=(
+                f"{title} — measured vs predicted"
+            ),
+            predicted_label=(
+                "Validation predicted"
+            ),
         )
-        ax.set_xlabel("Measured")
-        ax.set_ylabel("Validation predicted")
-        ax.set_title(f"{title} — measured vs predicted")
-        ax.grid(alpha=0.2)
-        fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
 
