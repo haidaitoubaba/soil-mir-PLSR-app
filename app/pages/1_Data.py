@@ -221,6 +221,47 @@ if st.button(
     except Exception as exc:
         st.exception(exc)
     else:
+        source_signature = (
+            str(spectra_path.resolve()),
+            str(reference_path.resolve()),
+        )
+        previous_signature = st.session_state.get(
+            "soil_mir_data_source_signature"
+        )
+        if (
+            previous_signature is not None
+            and previous_signature
+            != source_signature
+        ):
+            st.session_state[
+                "soil_mir_data_selected_properties"
+            ] = []
+            st.session_state[
+                "soil_mir_selected_properties"
+            ] = []
+            st.session_state.pop(
+                "cfg_selected_properties",
+                None,
+            )
+            st.session_state.pop(
+                "soil_mir_reference_ranges",
+                None,
+            )
+            for key in list(
+                st.session_state.keys()
+            ):
+                if (
+                    key.startswith("ref_min_")
+                    or key.startswith("ref_max_")
+                ):
+                    st.session_state.pop(
+                        key,
+                        None,
+                    )
+        st.session_state[
+            "soil_mir_data_source_signature"
+        ] = source_signature
+
         st.session_state[
             "soil_mir_spectra_dir"
         ] = str(spectra_path)
@@ -287,23 +328,22 @@ if (
         ),
     )
 
-    preferred = [
+    remembered_selection = [
         name
-        for name in (
-            "202_STC",
-            "202_STN",
+        for name in st.session_state.get(
+            "soil_mir_data_selected_properties",
+            [],
         )
         if name in properties
     ]
     selected = st.multiselect(
         "Properties to inspect",
         properties,
-        default=st.session_state.get(
-            "soil_mir_data_selected_properties",
-            preferred
-            or properties[
-                : min(2, len(properties))
-            ],
+        default=remembered_selection,
+        placeholder="Choose one or more properties",
+        help=(
+            "Properties are never selected automatically. "
+            "Choose the sheets you want to inspect."
         ),
     )
     st.session_state[

@@ -39,14 +39,7 @@ if not available_properties:
     )
     st.stop()
 
-default_properties = [
-    prop
-    for prop in (
-        "202_STC",
-        "202_STN",
-    )
-    if prop in available_properties
-] or available_properties[:1]
+default_properties = []
 
 
 def _initialize_widget_state(
@@ -68,8 +61,6 @@ def _initialize_widget_state(
             for prop in value
             if prop in available_properties
         ]
-        if not value:
-            value = list(default_properties)
     if config_key == "soil_mir_wn_range":
         value = tuple(value)
     st.session_state[widget_key] = value
@@ -314,6 +305,11 @@ selected_properties = st.multiselect(
     key=PROFILE_WIDGET_KEYS[
         "soil_mir_selected_properties"
     ],
+    placeholder="Choose one or more properties",
+    help=(
+        "No property is selected automatically. "
+        "Choose explicitly or load a saved profile."
+    ),
 )
 
 st.subheader("Basic settings")
