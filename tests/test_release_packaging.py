@@ -68,7 +68,7 @@ def test_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> None:
             "--output-dir",
             str(output_dir),
             "--label",
-            "v0.1.0",
+            "v0.2.0",
             "--commit",
             "cafebabe",
         ],
@@ -79,13 +79,13 @@ def test_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> None:
     )
 
     archive = Path(completed.stdout.strip())
-    assert archive.name == "soil-mir-app-v0.1.0-mac.tar.gz"
+    assert archive.name == "soil-mir-app-v0.2.0-mac.tar.gz"
 
     with tarfile.open(archive, "r:gz") as handle:
         roots = {name.split("/", 1)[0] for name in handle.getnames()}
-        assert roots == {"soil-mir-app-v0.1.0"}
+        assert roots == {"soil-mir-app-v0.2.0"}
         readme = handle.extractfile(
-            "soil-mir-app-v0.1.0/MAC_RELEASE_README.txt"
+            "soil-mir-app-v0.2.0/MAC_RELEASE_README.txt"
         )
         assert readme is not None
         text = readme.read().decode("utf-8")
@@ -147,3 +147,36 @@ def test_release_builders_share_version_and_bundle_naming_helpers():
     assert "from release_common import" in windows_source
     assert "release_identity" in mac_source
     assert "release_identity" in windows_source
+
+
+
+def test_windows_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> None:
+    output_dir = tmp_path / "dist"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/build_windows_release.py",
+            "--output-dir",
+            str(output_dir),
+            "--label",
+            "v0.2.0",
+            "--commit",
+            "cafebabe",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    archive = Path(completed.stdout.strip())
+    assert archive.name == "soil-mir-app-v0.2.0-windows.zip"
+
+    with zipfile.ZipFile(archive) as handle:
+        roots = {name.split("/", 1)[0] for name in handle.namelist()}
+        assert roots == {"soil-mir-app-v0.2.0"}
+        text = handle.read(
+            "soil-mir-app-v0.2.0/WINDOWS_RELEASE_README.txt"
+        ).decode("utf-8")
+        assert "Windows release\n" in text
+        assert "Windows release candidate" not in text
