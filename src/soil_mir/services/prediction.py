@@ -443,3 +443,111 @@ def predict_opus_directory(
         "cache_stats": cache_stats,
         "raw_wavenumbers": raw_wavenumbers,
     }
+
+
+
+def save_prediction_results(
+    replicate: pd.DataFrame,
+    sample: pd.DataFrame,
+    metrics: dict,
+    bundle: dict,
+    output_path: str | Path,
+    model_path: str | Path,
+    reference_sheet: str,
+) -> Path:
+    """Save predictions and model metadata using the authoritative script layout."""
+    output_path = Path(output_path).expanduser()
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    metrics_df = pd.DataFrame(
+        [
+            {
+                "Metric": key,
+                "Value": value,
+            }
+            for key, value in metrics.items()
+        ]
+    )
+    model_info = pd.DataFrame(
+        [
+            {
+                "Field": "Source model",
+                "Value": str(model_path),
+            },
+            {
+                "Field": "Reference sheet",
+                "Value": reference_sheet,
+            },
+            {
+                "Field": "Property",
+                "Value": bundle.get(
+                    "property_name",
+                    "",
+                ),
+            },
+            {
+                "Field": "Units",
+                "Value": bundle.get(
+                    "units",
+                    "",
+                ),
+            },
+            {
+                "Field": "Preprocessing",
+                "Value": bundle.get(
+                    "selected_preprocessing",
+                    "",
+                ),
+            },
+            {
+                "Field": "PLS rank",
+                "Value": bundle.get(
+                    "selected_rank",
+                    "",
+                ),
+            },
+            {
+                "Field": "Response transform",
+                "Value": bundle.get(
+                    "response_transform",
+                    "",
+                ),
+            },
+            {
+                "Field": "CO2 excluded",
+                "Value": bundle.get(
+                    "exclude_co2",
+                    "",
+                ),
+            },
+        ]
+    )
+
+    with pd.ExcelWriter(
+        output_path,
+        engine="openpyxl",
+    ) as writer:
+        replicate.to_excel(
+            writer,
+            sheet_name="Replicate Predictions",
+            index=False,
+        )
+        sample.to_excel(
+            writer,
+            sheet_name="Sample Predictions",
+            index=False,
+        )
+        metrics_df.to_excel(
+            writer,
+            sheet_name="Metrics",
+            index=False,
+        )
+        model_info.to_excel(
+            writer,
+            sheet_name="Model Info",
+            index=False,
+        )
+
+    return output_path

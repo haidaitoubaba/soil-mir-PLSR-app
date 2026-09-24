@@ -10,6 +10,7 @@ from soil_mir.services.prediction import (
     load_model_bundle,
     predict_external_dataset,
     resample_spectra_to_model_grid,
+    save_prediction_results,
 )
 
 
@@ -252,3 +253,74 @@ def test_external_library_uses_shared_alignment_and_cache(
     )
     assert set(spectra) == {"A.0", "B.0"}
     assert returned_stats is stats
+
+
+
+def test_prediction_workbook_matches_authoritative_sheet_layout(
+    tmp_path,
+):
+    replicate = pd.DataFrame(
+        {
+            "Sample": ["A", "A"],
+            "File Name": ["A.0", "A.1"],
+            "Measured": [1.0, 1.0],
+            "Predicted": [0.9, 1.1],
+            "Residual": [0.1, -0.1],
+        }
+    )
+    sample = pd.DataFrame(
+        {
+            "Sample": ["A"],
+            "Measured": [1.0],
+            "Predicted": [1.0],
+        }
+    )
+    metrics = {
+        "R2": 1.0,
+        "RMSE": 0.0,
+        "RPIQ": 1.0,
+        "Bias": 0.0,
+        "Samples": 1,
+        "Spectra": 2,
+    }
+    bundle = {
+        "property_name": "STC",
+        "units": "g C/kg soil",
+        "selected_preprocessing": "1st Deriv + SNV",
+        "selected_rank": 5,
+        "response_transform": "sqrt",
+        "exclude_co2": True,
+    }
+    output = tmp_path / "prediction.xlsx"
+
+    returned = save_prediction_results(
+        replicate,
+        sample,
+        metrics,
+        bundle,
+        output,
+        tmp_path / "Final_Model.joblib",
+        "213_STC",
+    )
+
+    assert returned == output
+    workbook = pd.ExcelFile(output)
+    assert workbook.sheet_names == [
+        "Replicate Predictions",
+        "Sample Predictions",
+        "Metrics",
+        "Model Info",
+    ]
+
+    info = pd.read_excel(
+        output,
+        sheet_name="Model Info",
+    ).set_index("Field")
+    assert info.loc[
+        "Reference sheet",
+        "Value",
+    ] == "213_STC"
+    assert info.loc[
+        "Property",
+        "Value",
+    ] == "STC"

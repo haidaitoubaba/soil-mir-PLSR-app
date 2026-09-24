@@ -11,7 +11,7 @@ The app now provides:
 2. **Configuration** — select properties and validation/model-search settings.
 3. **Run** — execute nested validation and a separate all-data final model refit.
 4. **Results** — review outer-validation metrics, predictions, model selection, and saved artifacts.
-5. **Predict** — apply a saved final `.joblib` model to a new OPUS directory.
+5. **Predict** — apply a saved final `.joblib` model to an external OPUS directory in either prediction-only or external-validation mode. External validation uses the reference worksheet's exact `File Name` → `Sample` mapping, allows only the authoritative script's ≤0.25 cm⁻¹ endpoint tolerance by default, reports validation metrics, and exports a four-sheet Excel workbook.
 6. **Run History** — reopen persistent summaries and saved artifacts from earlier runs.
 
 The full research dataset is intentionally **not** committed to Git. GitLab CI uses small
