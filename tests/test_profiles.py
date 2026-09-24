@@ -5,6 +5,7 @@ import pytest
 from soil_mir.services.profiles import (
     list_profiles,
     load_profile,
+    profile_widget_updates,
     save_profile,
 )
 
@@ -63,3 +64,47 @@ def test_blank_profile_name_is_rejected(tmp_path: Path):
             "!!!",
             {},
         )
+
+
+
+def test_profile_widget_updates_restore_all_saved_controls():
+    settings = {
+        "soil_mir_selected_properties": ["202_STC"],
+        "soil_mir_wn_range": [650, 3950],
+        "soil_mir_exclude_co2": True,
+        "soil_mir_max_rank": 9,
+        "soil_mir_validation_methods": ["kfold"],
+        "soil_mir_region_windows": 5,
+        "soil_mir_tolerance": 2.5,
+        "soil_mir_sg_window": 9,
+        "soil_mir_sg_polyorder": 2,
+        "soil_mir_random_seed": 77,
+        "soil_mir_internal_cv_folds": 8,
+        "soil_mir_outer_cv_folds": 4,
+        "soil_mir_n_repeats": 12,
+        "soil_mir_validation_fraction": 0.25,
+        "soil_mir_ks_representation": "pca",
+        "soil_mir_ks_pca_variance": 0.95,
+        "soil_mir_reference_ranges": {
+            "202_STC": {
+                "min": 0.1,
+                "max": 30.0,
+            }
+        },
+    }
+
+    updates = profile_widget_updates(
+        settings,
+        ["202_STC", "202_STN"],
+    )
+
+    assert updates["cfg_selected_properties"] == ["202_STC"]
+    assert updates["cfg_wn_range"] == (650, 3950)
+    assert updates["cfg_max_rank"] == 9
+    assert updates["cfg_region_windows"] == 5
+    assert updates["cfg_internal_cv_folds"] == 8
+    assert updates["cfg_outer_cv_folds"] == 4
+    assert updates["ref_min_202_STC"] == "0.1"
+    assert updates["ref_max_202_STC"] == "30.0"
+    assert updates["ref_min_202_STN"] == ""
+    assert updates["ref_max_202_STN"] == ""

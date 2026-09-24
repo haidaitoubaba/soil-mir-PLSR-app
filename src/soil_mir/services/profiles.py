@@ -8,6 +8,57 @@ from pathlib import Path
 PROFILE_VERSION = 1
 PROFILE_DIRNAME = ".soil_mir_profiles"
 
+PROFILE_WIDGET_KEYS = {
+    "soil_mir_selected_properties": "cfg_selected_properties",
+    "soil_mir_wn_range": "cfg_wn_range",
+    "soil_mir_exclude_co2": "cfg_exclude_co2",
+    "soil_mir_max_rank": "cfg_max_rank",
+    "soil_mir_validation_methods": "cfg_validation_methods",
+    "soil_mir_region_windows": "cfg_region_windows",
+    "soil_mir_tolerance": "cfg_tolerance",
+    "soil_mir_sg_window": "cfg_sg_window",
+    "soil_mir_sg_polyorder": "cfg_sg_polyorder",
+    "soil_mir_random_seed": "cfg_random_seed",
+    "soil_mir_internal_cv_folds": "cfg_internal_cv_folds",
+    "soil_mir_outer_cv_folds": "cfg_outer_cv_folds",
+    "soil_mir_n_repeats": "cfg_n_repeats",
+    "soil_mir_validation_fraction": "cfg_validation_fraction",
+    "soil_mir_ks_representation": "cfg_ks_representation",
+    "soil_mir_ks_pca_variance": "cfg_ks_pca_variance",
+}
+
+
+def profile_widget_updates(
+    settings: dict,
+    available_properties: list[str] | tuple[str, ...],
+) -> dict:
+    """Translate saved configuration values into explicit Streamlit widget state."""
+    updates = {}
+    for config_key, widget_key in PROFILE_WIDGET_KEYS.items():
+        if config_key not in settings:
+            continue
+        value = settings[config_key]
+        if config_key == "soil_mir_wn_range":
+            value = tuple(value)
+        updates[widget_key] = value
+
+    ranges = settings.get(
+        "soil_mir_reference_ranges",
+        {},
+    )
+    for property_name in available_properties:
+        bounds = ranges.get(property_name, {})
+        for bound in ("min", "max"):
+            value = bounds.get(bound)
+            updates[
+                f"ref_{bound}_{property_name}"
+            ] = (
+                ""
+                if value is None
+                else str(value)
+            )
+    return updates
+
 
 def _safe_profile_name(name: str) -> str:
     cleaned = re.sub(

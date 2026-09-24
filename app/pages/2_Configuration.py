@@ -9,8 +9,10 @@ from soil_mir.config import (
     ValidationConfig,
 )
 from soil_mir.services.profiles import (
+    PROFILE_WIDGET_KEYS,
     list_profiles,
     load_profile,
+    profile_widget_updates,
     save_profile,
 )
 
@@ -44,6 +46,98 @@ default_properties = [
     )
     if prop in available_properties
 ] or available_properties[:1]
+
+
+def _initialize_widget_state(
+    config_key: str,
+    default,
+) -> None:
+    widget_key = PROFILE_WIDGET_KEYS[
+        config_key
+    ]
+    if widget_key in st.session_state:
+        return
+    value = st.session_state.get(
+        config_key,
+        default,
+    )
+    if config_key == "soil_mir_selected_properties":
+        value = [
+            prop
+            for prop in value
+            if prop in available_properties
+        ]
+        if not value:
+            value = list(default_properties)
+    if config_key == "soil_mir_wn_range":
+        value = tuple(value)
+    st.session_state[widget_key] = value
+
+
+_initialize_widget_state(
+    "soil_mir_selected_properties",
+    list(default_properties),
+)
+_initialize_widget_state(
+    "soil_mir_wn_range",
+    (600, 4000),
+)
+_initialize_widget_state(
+    "soil_mir_exclude_co2",
+    False,
+)
+_initialize_widget_state(
+    "soil_mir_max_rank",
+    15,
+)
+_initialize_widget_state(
+    "soil_mir_validation_methods",
+    ["kfold"],
+)
+_initialize_widget_state(
+    "soil_mir_region_windows",
+    7,
+)
+_initialize_widget_state(
+    "soil_mir_tolerance",
+    5.0,
+)
+_initialize_widget_state(
+    "soil_mir_sg_window",
+    11,
+)
+_initialize_widget_state(
+    "soil_mir_sg_polyorder",
+    2,
+)
+_initialize_widget_state(
+    "soil_mir_random_seed",
+    42,
+)
+_initialize_widget_state(
+    "soil_mir_internal_cv_folds",
+    10,
+)
+_initialize_widget_state(
+    "soil_mir_outer_cv_folds",
+    5,
+)
+_initialize_widget_state(
+    "soil_mir_n_repeats",
+    30,
+)
+_initialize_widget_state(
+    "soil_mir_validation_fraction",
+    0.20,
+)
+_initialize_widget_state(
+    "soil_mir_ks_representation",
+    "raw",
+)
+_initialize_widget_state(
+    "soil_mir_ks_pca_variance",
+    0.99,
+)
 
 PROFILE_SESSION_KEYS = {
     "soil_mir_selected_properties",
@@ -108,6 +202,12 @@ if output_dir:
                             allowed["soil_mir_wn_range"]
                         )
                     st.session_state.update(allowed)
+                    st.session_state.update(
+                        profile_widget_updates(
+                            allowed,
+                            available_properties,
+                        )
+                    )
                     st.rerun()
         else:
             st.caption(
@@ -118,10 +218,9 @@ if output_dir:
 selected_properties = st.multiselect(
     "Properties",
     available_properties,
-    default=st.session_state.get(
-        "soil_mir_selected_properties",
-        default_properties,
-    ),
+    key=PROFILE_WIDGET_KEYS[
+        "soil_mir_selected_properties"
+    ],
 )
 
 st.subheader("Basic settings")
@@ -132,18 +231,16 @@ with left:
         "Spectral range (cm⁻¹)",
         min_value=400,
         max_value=4000,
-        value=st.session_state.get(
-            "soil_mir_wn_range",
-            (600, 4000),
-        ),
         step=25,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_wn_range"
+        ],
     )
     exclude_co2 = st.checkbox(
         "Exclude CO₂ region (2300–2400 cm⁻¹)",
-        value=st.session_state.get(
-            "soil_mir_exclude_co2",
-            False,
-        ),
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_exclude_co2"
+        ],
         help=(
             "Property Metadata takes precedence when "
             "a property-specific setting is available."
@@ -153,11 +250,10 @@ with left:
         "Maximum PLS rank",
         min_value=1,
         max_value=50,
-        value=st.session_state.get(
-            "soil_mir_max_rank",
-            15,
-        ),
         step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_max_rank"
+        ],
     )
 
 with right:
@@ -170,20 +266,18 @@ with right:
             "logo",
             "kennard_stone",
         ],
-        default=st.session_state.get(
-            "soil_mir_validation_methods",
-            ["kfold"],
-        ),
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_validation_methods"
+        ],
     )
     region_windows = st.number_input(
         "Region search windows",
         min_value=1,
         max_value=16,
-        value=st.session_state.get(
-            "soil_mir_region_windows",
-            7,
-        ),
         step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_region_windows"
+        ],
         help=(
             "Backward search cost grows quickly as "
             "the number of windows increases."
@@ -192,13 +286,10 @@ with right:
     tolerance = st.number_input(
         "RMSECV tolerance (%)",
         min_value=0.0,
-        value=float(
-            st.session_state.get(
-                "soil_mir_tolerance",
-                5.0,
-            )
-        ),
         step=0.5,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_tolerance"
+        ],
     )
 
 st.subheader("Validation settings")
@@ -209,25 +300,19 @@ with validation_left:
         "Internal CV folds",
         min_value=2,
         max_value=20,
-        value=int(
-            st.session_state.get(
-                "soil_mir_internal_cv_folds",
-                10,
-            )
-        ),
         step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_internal_cv_folds"
+        ],
     )
     outer_cv_folds = st.number_input(
         "Outer K-fold folds",
         min_value=2,
         max_value=20,
-        value=int(
-            st.session_state.get(
-                "soil_mir_outer_cv_folds",
-                5,
-            )
-        ),
         step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_outer_cv_folds"
+        ],
         disabled=(
             "kfold"
             not in validation_methods
@@ -237,13 +322,10 @@ with validation_left:
         "Monte Carlo repeats",
         min_value=1,
         max_value=500,
-        value=int(
-            st.session_state.get(
-                "soil_mir_n_repeats",
-                30,
-            )
-        ),
         step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_n_repeats"
+        ],
         disabled=(
             "monte_carlo"
             not in validation_methods
@@ -255,13 +337,10 @@ with validation_right:
         "Holdout fraction",
         min_value=0.05,
         max_value=0.95,
-        value=float(
-            st.session_state.get(
-                "soil_mir_validation_fraction",
-                0.20,
-            )
-        ),
         step=0.05,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_validation_fraction"
+        ],
         disabled=(
             not any(
                 method in validation_methods
@@ -279,16 +358,9 @@ with validation_right:
             "derivative_snv",
             "pca",
         ],
-        index=[
-            "raw",
-            "derivative_snv",
-            "pca",
-        ].index(
-            st.session_state.get(
-                "soil_mir_ks_representation",
-                "raw",
-            )
-        ),
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_ks_representation"
+        ],
         disabled=(
             "kennard_stone"
             not in validation_methods
@@ -298,13 +370,10 @@ with validation_right:
         "KS PCA retained variance",
         min_value=0.50,
         max_value=0.999,
-        value=float(
-            st.session_state.get(
-                "soil_mir_ks_pca_variance",
-                0.99,
-            )
-        ),
         step=0.01,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_ks_pca_variance"
+        ],
         disabled=(
             "kennard_stone"
             not in validation_methods
@@ -316,29 +385,26 @@ with st.expander("Advanced spectral settings"):
     sg_window = st.number_input(
         "Savitzky–Golay window",
         min_value=3,
-        value=st.session_state.get(
-            "soil_mir_sg_window",
-            11,
-        ),
         step=2,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_sg_window"
+        ],
     )
     sg_polyorder = st.number_input(
         "Savitzky–Golay polynomial order",
         min_value=0,
-        value=st.session_state.get(
-            "soil_mir_sg_polyorder",
-            2,
-        ),
         step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_sg_polyorder"
+        ],
     )
     random_seed = st.number_input(
         "Random seed",
         min_value=0,
-        value=st.session_state.get(
-            "soil_mir_random_seed",
-            42,
-        ),
         step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_random_seed"
+        ],
     )
 
 saved_reference_ranges = st.session_state.get(
@@ -357,25 +423,29 @@ with st.expander("Reference-value filters (optional)"):
             {},
         )
         left_range, right_range = st.columns(2)
+        min_key = f"ref_min_{property_name}"
+        max_key = f"ref_max_{property_name}"
+        if min_key not in st.session_state:
+            st.session_state[min_key] = (
+                ""
+                if saved.get("min") is None
+                else str(saved.get("min"))
+            )
+        if max_key not in st.session_state:
+            st.session_state[max_key] = (
+                ""
+                if saved.get("max") is None
+                else str(saved.get("max"))
+            )
         with left_range:
             ref_min_text = st.text_input(
                 f"{property_name} minimum",
-                value=(
-                    ""
-                    if saved.get("min") is None
-                    else str(saved.get("min"))
-                ),
-                key=f"ref_min_{property_name}",
+                key=min_key,
             )
         with right_range:
             ref_max_text = st.text_input(
                 f"{property_name} maximum",
-                value=(
-                    ""
-                    if saved.get("max") is None
-                    else str(saved.get("max"))
-                ),
-                key=f"ref_max_{property_name}",
+                key=max_key,
             )
         reference_range_inputs[property_name] = {
             "min": ref_min_text,
