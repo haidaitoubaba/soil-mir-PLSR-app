@@ -317,6 +317,259 @@ def export_validation_result(
     }
 
 
+def export_final_refit(
+    refit: dict,
+    run_dir: str | Path,
+    *,
+    source_validation_tolerance_pct: float,
+) -> dict[str, str]:
+    """Save a final-only tolerance refit without altering validation artifacts."""
+    run_dir = Path(run_dir)
+    tolerance = float(
+        refit["refit_tolerance_pct"]
+    )
+    tolerance_slug = (
+        f"{tolerance:g}".replace(".", "p")
+    )
+    target = (
+        run_dir
+        / safe_name(refit["property"])
+        / safe_name(refit["method"])
+        / "Final_Refits"
+        / f"Tolerance_{tolerance_slug}"
+    )
+    target.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    stem = (
+        f"PLSR_{safe_name(refit['method'])}_"
+        f"{safe_name(refit['property'])}_"
+        f"Final_Model_Tolerance_{tolerance_slug}"
+    )
+    model_path = target / f"{stem}.joblib"
+    workbook_path = target / (
+        f"{stem}_Selection.xlsx"
+    )
+    metadata_path = target / "Refit_Metadata.json"
+    config_path = target / "Resolved_Config.json"
+
+    metadata = reproducibility_metadata()
+    source_tolerance = float(
+        source_validation_tolerance_pct
+    )
+    refit["final_model"].update(
+        metadata,
+        artifact_role="final_only_refit",
+        outer_validation_rerun=False,
+        source_validation_tolerance_pct=(
+            source_tolerance
+        ),
+        refit_tolerance_pct=tolerance,
+        source_run_id=run_dir.name,
+    )
+    joblib.dump(
+        refit["final_model"],
+        model_path,
+        compress=3,
+    )
+
+    final_settings = refit[
+        "final_settings"
+    ]
+    write_json(
+        metadata_path,
+        {
+            **metadata,
+            "artifact_role": (
+                "final_only_refit"
+            ),
+            "property": refit["property"],
+            "validation_method": refit[
+                "method"
+            ],
+            "source_run_id": run_dir.name,
+            "source_validation_tolerance_pct": (
+                source_tolerance
+            ),
+            "refit_tolerance_pct": tolerance,
+            "outer_validation_rerun": False,
+            "validation_metrics_note": (
+                "Validation metrics remain those of the source run; "
+                "they are not metrics for this refit tolerance."
+            ),
+            "preprocessing": final_settings[
+                "Preprocessing"
+            ],
+            "region": final_settings[
+                "Region"
+            ],
+            "rank": int(
+                final_settings["Rank"]
+            ),
+            "training_samples": refit[
+                "final_model"
+            ].get(
+                "training_sample_count"
+            ),
+            "training_spectra": refit[
+                "final_model"
+            ].get(
+                "training_spectrum_count"
+            ),
+        },
+    )
+    write_json(
+        config_path,
+        public_config(
+            refit["config"]
+        ),
+    )
+
+    tolerance_comparison = (
+        build_tolerance_comparison(
+            refit["final_search"],
+            tolerance,
+        )
+    )
+    settings = pd.DataFrame(
+        [
+            {
+                "Setting": key,
+                "Value": str(value),
+            }
+            for key, value in public_config(
+                refit["config"]
+            ).items()
+        ]
+    )
+    final_selection = pd.DataFrame(
+        [final_settings]
+    )
+
+    with pd.ExcelWriter(
+        workbook_path,
+        engine="openpyxl",
+    ) as writer:
+        refit["final_search"].to_excel(
+            writer,
+            sheet_name=(
+                "Final Calibration Search"
+            ),
+            index=False,
+        )
+        final_selection.to_excel(
+            writer,
+            sheet_name=(
+                "Final Model Selection"
+            ),
+            index=False,
+        )
+        tolerance_comparison.to_excel(
+            writer,
+            sheet_name=(
+                "Tolerance Comparison"
+            ),
+            index=False,
+        )
+        settings.to_excel(
+            writer,
+            sheet_name="Resolved Settings",
+            index=False,
+        )
+
+    return {
+        "directory": str(target),
+        "model": str(model_path),
+        "workbook": str(workbook_path),
+        "metadata": str(metadata_path),
+        "config": str(config_path),
+    }
+
+
+def record_final_refit(
+    run_dir: str | Path,
+    refit: dict,
+    artifacts: dict[str, str],
+    *,
+    source_validation_tolerance_pct: float,
+) -> dict:
+    """Record a final-only refit separately from validated run results."""
+    manifest = read_run_manifest(
+        run_dir
+    )
+    tolerance = float(
+        refit["refit_tolerance_pct"]
+    )
+    final_settings = refit[
+        "final_settings"
+    ]
+    record = {
+        "property": refit["property"],
+        "method": refit["method"],
+        "refit_tolerance_pct": (
+            tolerance
+        ),
+        "source_validation_tolerance_pct": (
+            float(
+                source_validation_tolerance_pct
+            )
+        ),
+        "outer_validation_rerun": False,
+        "created_at": _utc_now(),
+        "final_model": {
+            "preprocessing": (
+                final_settings[
+                    "Preprocessing"
+                ]
+            ),
+            "region": final_settings[
+                "Region"
+            ],
+            "rank": int(
+                final_settings["Rank"]
+            ),
+        },
+        "artifacts": dict(
+            artifacts
+        ),
+    }
+    refits = [
+        existing
+        for existing in manifest.get(
+            "final_refits",
+            [],
+        )
+        if not (
+            existing.get("property")
+            == refit["property"]
+            and existing.get("method")
+            == refit["method"]
+            and float(
+                existing.get(
+                    "refit_tolerance_pct",
+                    -1,
+                )
+            )
+            == tolerance
+        )
+    ]
+    refits.append(record)
+    manifest["final_refits"] = (
+        refits
+    )
+    manifest["updated_at"] = (
+        _utc_now()
+    )
+    write_json(
+        Path(run_dir)
+        / RUN_MANIFEST_NAME,
+        manifest,
+    )
+    return manifest
+
+
 def export_validation_comparison(
     results: dict[str, dict],
     run_dir: str | Path,
