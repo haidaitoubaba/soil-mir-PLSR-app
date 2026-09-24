@@ -13,6 +13,9 @@ from soil_mir.plotting import (
     residual_distribution_figure,
     residual_figure,
 )
+from soil_mir.regions import (
+    build_tolerance_comparison,
+)
 
 import joblib
 import numpy as np
@@ -226,6 +229,22 @@ def export_validation_result(
             ).items()
         ]
     )
+    tolerance_comparison = result.get(
+        "tolerance_comparison"
+    )
+    if tolerance_comparison is None:
+        tolerance_comparison = build_tolerance_comparison(
+            result["final_search"],
+            float(
+                result["config"].get(
+                    "rmsecv_tolerance_pct",
+                    0.0,
+                )
+            ),
+        )
+        result["tolerance_comparison"] = (
+            tolerance_comparison
+        )
 
     with pd.ExcelWriter(
         workbook_path,
@@ -264,6 +283,11 @@ def export_validation_result(
         final_selection.to_excel(
             writer,
             sheet_name="Final Model Selection",
+            index=False,
+        )
+        tolerance_comparison.to_excel(
+            writer,
+            sheet_name="Tolerance Comparison",
             index=False,
         )
         region_windows.to_excel(

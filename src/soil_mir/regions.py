@@ -164,3 +164,112 @@ def choose_with_tolerance(
         "Allowed RMSECV": threshold,
         "RMSECV Increase (%)": increase,
     }
+
+
+
+def build_tolerance_comparison(
+    search_results: pd.DataFrame,
+    configured_tolerance: float,
+    *,
+    minimum_tolerance: int = 0,
+    maximum_tolerance: int = 10,
+) -> pd.DataFrame:
+    """Compare final-model selections across integer RMSECV tolerances.
+
+    This reuses one completed final calibration search and does not rerun
+    outer validation.
+    """
+    configured_tolerance = validate_tolerance(
+        configured_tolerance
+    )
+    if (
+        isinstance(minimum_tolerance, bool)
+        or isinstance(maximum_tolerance, bool)
+        or not isinstance(
+            minimum_tolerance,
+            (int, np.integer),
+        )
+        or not isinstance(
+            maximum_tolerance,
+            (int, np.integer),
+        )
+        or minimum_tolerance < 0
+        or maximum_tolerance < minimum_tolerance
+    ):
+        raise ValueError(
+            "Tolerance comparison bounds must be nonnegative integers "
+            "with maximum >= minimum."
+        )
+
+    frame = search_results.copy()
+    if "Phase" in frame.columns:
+        final_phase = frame[
+            frame["Phase"]
+            == "Final calibration search"
+        ]
+        if not final_phase.empty:
+            frame = final_phase
+
+    required = {
+        "Region",
+        "Preprocessing",
+        "Rank",
+        "RMSECV",
+    }
+    missing = sorted(
+        required.difference(frame.columns)
+    )
+    if missing:
+        raise ValueError(
+            "Final calibration search is missing columns: "
+            f"{missing}"
+        )
+
+    optional_columns = [
+        column
+        for column in (
+            "Regions (cm-1)",
+            "Spectral Points",
+        )
+        if column in frame.columns
+    ]
+
+    records = []
+    for tolerance in range(
+        int(minimum_tolerance),
+        int(maximum_tolerance) + 1,
+    ):
+        row, decision = choose_with_tolerance(
+            frame,
+            "RMSECV",
+            float(tolerance),
+        )
+        records.append(
+            {
+                **decision,
+                "Region": row["Region"],
+                **{
+                    column: row[column]
+                    for column in optional_columns
+                },
+                "Preprocessing": row[
+                    "Preprocessing"
+                ],
+                "Rank": int(row["Rank"]),
+                "RMSECV": float(row["RMSECV"]),
+                "Used for Current Run": bool(
+                    np.isclose(
+                        configured_tolerance,
+                        float(tolerance),
+                        rtol=0,
+                        atol=1e-12,
+                    )
+                ),
+                "Interpretation": (
+                    "Final calibration CV selection sensitivity; "
+                    "not held-out validation"
+                ),
+            }
+        )
+
+    return pd.DataFrame(records)

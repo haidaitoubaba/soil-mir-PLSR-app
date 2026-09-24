@@ -10,6 +10,9 @@ from soil_mir.plotting import (
     residual_distribution_figure,
     residual_figure,
 )
+from soil_mir.regions import (
+    build_tolerance_comparison,
+)
 
 st.set_page_config(
     page_title="Results | Soil MIR PLSR",
@@ -149,6 +152,41 @@ for result in results.values():
             f"{final_settings['Preprocessing']} | "
             f"{final_settings['Region']} | "
             f"rank {int(final_settings['Rank'])}"
+        )
+
+        tolerance_comparison = result.get(
+            "tolerance_comparison"
+        )
+        if tolerance_comparison is None:
+            configured_tolerance = float(
+                result.get(
+                    "config",
+                    {},
+                ).get(
+                    "rmsecv_tolerance_pct",
+                    0.0,
+                )
+            )
+            tolerance_comparison = build_tolerance_comparison(
+                result["final_search"],
+                configured_tolerance,
+            )
+            result[
+                "tolerance_comparison"
+            ] = tolerance_comparison
+
+        st.subheader(
+            "Tolerance comparison (0–10%)"
+        )
+        st.caption(
+            "Each row re-applies an integer RMSECV tolerance to the same "
+            "completed final calibration search. This compares final-model "
+            "selection sensitivity; it does not rerun outer validation."
+        )
+        st.dataframe(
+            tolerance_comparison,
+            use_container_width=True,
+            hide_index=True,
         )
 
         predictions = result[

@@ -8,6 +8,9 @@ import pandas as pd
 from soil_mir.reporting import (
     list_run_history,
 )
+from soil_mir.regions import (
+    build_tolerance_comparison,
+)
 
 
 REQUIRED_SHEETS = {
@@ -62,6 +65,11 @@ def load_saved_result(record: dict) -> dict:
             if "Optimization Results" in workbook.sheet_names
             else pd.DataFrame()
         )
+        tolerance_comparison = (
+            workbook.parse("Tolerance Comparison")
+            if "Tolerance Comparison" in workbook.sheet_names
+            else None
+        )
 
     if final_selection.empty:
         raise ValueError(
@@ -86,6 +94,20 @@ def load_saved_result(record: dict) -> dict:
             predictions["Sample Key"].nunique()
         )
 
+    config = _read_optional_json(
+        artifacts.get("config")
+    )
+    if tolerance_comparison is None:
+        tolerance_comparison = build_tolerance_comparison(
+            final_search,
+            float(
+                config.get(
+                    "rmsecv_tolerance_pct",
+                    0.0,
+                )
+            ),
+        )
+
     return {
         "property": record.get("property", ""),
         "method": record.get("method", ""),
@@ -100,9 +122,8 @@ def load_saved_result(record: dict) -> dict:
         "split_info": _read_optional_json(
             artifacts.get("split_info")
         ),
-        "config": _read_optional_json(
-            artifacts.get("config")
-        ),
+        "config": config,
+        "tolerance_comparison": tolerance_comparison,
         "unique_validation_samples": int(
             unique_samples or 0
         ),
