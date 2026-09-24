@@ -409,7 +409,16 @@ if (
                     "Unique samples": (
                         summary.unique_samples
                     ),
-                    "Groups": summary.groups,
+                    "Groups": (
+                        summary.groups
+                        if summary.group_column_present
+                        else "Not provided"
+                    ),
+                    "Missing groups": (
+                        summary.missing_group_values
+                        if summary.group_column_present
+                        else "—"
+                    ),
                     "Missing refs": (
                         summary.missing_reference_values
                     ),

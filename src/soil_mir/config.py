@@ -13,7 +13,16 @@ class ColumnConfig:
 
     @property
     def required(self) -> tuple[str, ...]:
-        return (self.sample_id, self.reference_value, self.reference_file, self.group)
+        """Columns required for every reference property sheet.
+
+        Group is optional metadata. Validation methods that require groups
+        (currently LOGO) validate it later during method-specific preflight.
+        """
+        return (
+            self.sample_id,
+            self.reference_value,
+            self.reference_file,
+        )
 
 
 @dataclass(frozen=True)

@@ -201,3 +201,141 @@ def test_loader_uses_shared_spectral_coverage(
     assert dataset.X.shape[1] == 31
     assert dataset.wavenumbers.min() >= 600.0
     assert dataset.wavenumbers.max() < 4000.0
+
+
+def test_loader_keeps_rows_when_group_is_missing(
+    tmp_path,
+    monkeypatch,
+):
+    workbook = tmp_path / "reference_no_group.xlsx"
+    spectra = tmp_path / "spectra"
+    spectra.mkdir()
+
+    frame = pd.DataFrame(
+        {
+            "Sample": [
+                "S0",
+                "S1",
+                "S2",
+                "S3",
+            ],
+            "Reference Value": [
+                1.0,
+                2.0,
+                3.0,
+                4.0,
+            ],
+            "File Name": [
+                "S0.0",
+                "S1.0",
+                "S2.0",
+                "S3.0",
+            ],
+        }
+    )
+    with pd.ExcelWriter(
+        workbook,
+        engine="openpyxl",
+    ) as writer:
+        frame.to_excel(
+            writer,
+            sheet_name="STC",
+            index=False,
+        )
+
+    monkeypatch.setattr(
+        calibration,
+        "load_opus_spectra_cached",
+        _fake_cache,
+    )
+
+    dataset = calibration.load_calibration_dataset(
+        spectra,
+        workbook,
+        "STC",
+        wn_min=600,
+        wn_max=4000,
+        fallback_exclude_co2=False,
+    )
+
+    assert dataset.rows == 4
+    assert dataset.unique_samples == 4
+    assert dataset.group_column_present is False
+    assert dataset.group_labels_complete is False
+    assert dataset.group_count == 0
+    assert dataset.missing_group_samples == 4
+    assert (dataset.group_labels == "").all()
+
+
+def test_partial_group_data_does_not_drop_samples(
+    tmp_path,
+    monkeypatch,
+):
+    workbook = tmp_path / "reference_partial_group.xlsx"
+    spectra = tmp_path / "spectra"
+    spectra.mkdir()
+
+    frame = pd.DataFrame(
+        {
+            "Sample": [
+                "S0",
+                "S1",
+                "S2",
+                "S3",
+            ],
+            "Reference Value": [
+                1.0,
+                2.0,
+                3.0,
+                4.0,
+            ],
+            "File Name": [
+                "S0.0",
+                "S1.0",
+                "S2.0",
+                "S3.0",
+            ],
+            "Group": [
+                "A",
+                "A",
+                None,
+                "B",
+            ],
+        }
+    )
+    with pd.ExcelWriter(
+        workbook,
+        engine="openpyxl",
+    ) as writer:
+        frame.to_excel(
+            writer,
+            sheet_name="STC",
+            index=False,
+        )
+
+    monkeypatch.setattr(
+        calibration,
+        "load_opus_spectra_cached",
+        _fake_cache,
+    )
+
+    dataset = calibration.load_calibration_dataset(
+        spectra,
+        workbook,
+        "STC",
+        wn_min=600,
+        wn_max=4000,
+        fallback_exclude_co2=False,
+    )
+
+    assert dataset.rows == 4
+    assert set(dataset.sample_ids) == {
+        "S0",
+        "S1",
+        "S2",
+        "S3",
+    }
+    assert dataset.group_column_present is True
+    assert dataset.group_labels_complete is False
+    assert dataset.group_count == 2
+    assert dataset.missing_group_samples == 1

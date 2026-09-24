@@ -12,17 +12,20 @@ VALIDATION_METHOD_LABELS = {
 VALIDATION_METHOD_DESCRIPTIONS = {
     "kfold": (
         "Unique samples are divided into K folds; each fold is used once "
-        "for outer validation."
+        "for outer validation. Group is optional and is used for balancing "
+        "when complete and feasible."
     ),
     "monte_carlo": (
         "Repeated random sample-level holdouts estimate performance across "
-        "multiple calibration/validation splits."
+        "multiple calibration/validation splits. Group is optional and is "
+        "used for stratification when complete and feasible."
     ),
     "loso": (
         "One unique sample is held out for outer validation at a time."
     ),
     "logo": (
-        "One treatment/group is held out for outer validation at a time."
+        "One treatment/group is held out for outer validation at a time. "
+        "A complete Group column is required."
     ),
     "kennard_stone": (
         "A fixed validation subset is selected to represent the spectral "
