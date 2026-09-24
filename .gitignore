@@ -1,0 +1,23 @@
+# Local research data should not be committed.
+data/
+results/
+output/
+
+# Caches and local artifacts.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.streamlit/
+*.joblib
+*.pkl
+.DS_Store
+._*
+__MACOSX/
+
+# Environments / packaging.
+.venv/
+venv/
+dist/
+build/
+*.egg-info/

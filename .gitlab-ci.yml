@@ -1,132 +1,99 @@
 stages:
   - validate
-  - test
+  - quality
+  - package
 
 default:
   interruptible: true
 
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+cache:
+  key: "python311-pip"
+  paths:
+    - .cache/pip/
+
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+.python_test_job:
+  image: python:3.11-slim
+  before_script:
+    - python -m pip install -e ".[test,science]"
 
 ci_config_check:
   stage: validate
-  image: alpine:3.20
+  image: python:3.11-slim
   script:
-    - echo "GitLab CI is active for $CI_PROJECT_PATH on $CI_COMMIT_REF_NAME"
-    - |
-      found=0
-      for f in pyproject.toml requirements.txt package.json go.mod "*.sln" "*.csproj" Cargo.toml pom.xml build.gradle build.gradle.kts; do
-        if ls $f >/dev/null 2>&1; then
-          echo "Detected: $f"
-          found=1
-        fi
-      done
-      if [ "$found" -eq 0 ]; then
-        echo "No supported application manifest yet; CI bootstrap is healthy."
-      fi
+    - python -m compileall -q src app tests scripts
+    - python -c 'import tomllib; config=tomllib.load(open("pyproject.toml","rb")); assert config["project"]["name"] == "soil-mir-app"; print("Project configuration is valid.")'
+    - python scripts/build_mac_release.py --check-only
+    - bash -n run_app.command
 
-python_test:
-  stage: test
-  image: python:3.12-slim
-  rules:
-    - exists:
-        - pyproject.toml
-        - requirements.txt
-        - setup.py
-        - setup.cfg
+lint:
+  stage: quality
+  image: python:3.11-slim
   before_script:
-    - python -m pip install --upgrade pip
-    - |
-      if [ -f requirements.txt ]; then
-        python -m pip install -r requirements.txt
-      elif [ -f pyproject.toml ]; then
-        python -m pip install -e ".[test]" || python -m pip install -e . || python -m pip install .
-      else
-        python -m pip install -e . || true
-      fi
+    - python -m pip install "ruff>=0.6"
   script:
-    - |
-      if [ -d tests ] || [ -f pytest.ini ] || [ -f conftest.py ]; then
-        python -m pip install pytest
-        python -m pytest -q
-      else
-        python -m compileall -q .
-      fi
+    - ruff check src app tests scripts
 
-node_test:
-  stage: test
-  image: node:22
-  rules:
-    - exists:
-        - package.json
+pytest:
+  extends: .python_test_job
+  stage: quality
+  script:
+    - pytest -q
+
+streamlit_smoke:
+  stage: quality
+  image: python:3.11-slim
   before_script:
+    - python -m pip install "streamlit>=1.39"
+  script:
+    - streamlit run app/Home.py --server.headless=true --server.port=8501 > /tmp/streamlit.log 2>&1 & echo $! > /tmp/streamlit.pid
     - |
-      if [ -f package-lock.json ]; then
-        npm ci
-      else
-        npm install
-      fi
-  script:
-    - npm test --if-present
-    - npm run build --if-present
+      python - <<'PY'
+      import time
+      import urllib.request
 
-go_test:
-  stage: test
-  image: golang:1.24
-  rules:
-    - exists:
-        - go.mod
-  script:
-    - go test ./...
+      deadline = time.time() + 30
+      last = None
+      while time.time() < deadline:
+          try:
+              with urllib.request.urlopen("http://127.0.0.1:8501/_stcore/health", timeout=2) as response:
+                  body = response.read().decode("utf-8", "replace")
+                  if response.status == 200 and "ok" in body.lower():
+                      print("Streamlit health check passed")
+                      raise SystemExit(0)
+          except Exception as exc:
+              last = exc
+              time.sleep(1)
+      raise SystemExit(f"Streamlit did not become healthy: {last}")
+      PY
+  after_script:
+    - if [ -f /tmp/streamlit.pid ]; then kill $(cat /tmp/streamlit.pid) || true; fi
+    - cat /tmp/streamlit.log || true
 
-dotnet_test:
-  stage: test
-  image: mcr.microsoft.com/dotnet/sdk:8.0
-  rules:
-    - exists:
-        - "*.sln"
-        - "*.csproj"
-        - "**/*.csproj"
+mac_rc_bundle:
+  stage: package
+  image: python:3.11-slim
   script:
-    - dotnet restore
-    - dotnet test --no-restore --configuration Release
-
-rust_test:
-  stage: test
-  image: rust:1.90
+    - release_label="${CI_COMMIT_TAG:-rc-${CI_COMMIT_SHORT_SHA}}"
+    - python scripts/build_mac_release.py --label "$release_label" --commit "$CI_COMMIT_SHA"
+    - ls -lh dist/
+  artifacts:
+    name: "soil-mir-mac-${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - dist/*.zip
+    expire_in: 30 days
   rules:
-    - exists:
-        - Cargo.toml
-  script:
-    - |
-      if [ -f Cargo.lock ]; then
-        cargo test --locked
-      else
-        cargo test
-      fi
-
-maven_test:
-  stage: test
-  image: maven:3.9-eclipse-temurin-21
-  rules:
-    - exists:
-        - pom.xml
-  script:
-    - mvn -B test
-
-gradle_test:
-  stage: test
-  image: gradle:8.10-jdk21
-  rules:
-    - exists:
-        - build.gradle
-        - build.gradle.kts
-  script:
-    - |
-      if [ -x ./gradlew ]; then
-        ./gradlew test
-      else
-        gradle test
-      fi
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'

@@ -1,0 +1,228 @@
+from pathlib import Path
+
+import pandas as pd
+
+from soil_mir.reporting import (
+    finalize_run_manifest,
+    initialize_run_manifest,
+    list_run_history,
+    read_run_manifest,
+    record_run_failure,
+    record_run_result,
+    resume_run_manifest,
+)
+
+
+def _result():
+    return {
+        "property": "202_STC",
+        "method": "kfold",
+        "summary": pd.DataFrame(
+            {
+                "Metric": ["R2", "RMSE", "RPIQ", "Bias"],
+                "Value": [0.82, 0.41, 2.3, -0.02],
+            }
+        ),
+        "final_settings": {
+            "Preprocessing": "1st Deriv + SNV",
+            "Region": "W01 + W03",
+            "Rank": 4,
+        },
+        "unique_validation_samples": 24,
+        "elapsed_seconds": 12.5,
+    }
+
+
+def test_run_manifest_lifecycle(tmp_path: Path):
+    run_dir = tmp_path / "20260923_120000_000000"
+    run_dir.mkdir()
+
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC", "202_STN"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    record_run_result(
+        run_dir,
+        _result(),
+        {
+            "model": "/results/model.joblib",
+            "workbook": "/results/results.xlsx",
+        },
+    )
+    finalize_run_manifest(
+        run_dir,
+        status="completed",
+    )
+
+    manifest = read_run_manifest(run_dir)
+    assert manifest["status"] == "completed"
+    assert manifest["failures"] == []
+    assert len(manifest["results"]) == 1
+    assert manifest["results"][0]["metrics"]["R2"] == 0.82
+    assert manifest["results"][0]["final_model"]["rank"] == 4
+
+
+def test_run_manifest_records_partial_failure(tmp_path: Path):
+    run_dir = tmp_path / "20260923_130000_000000"
+    run_dir.mkdir()
+
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC", "202_STN"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    record_run_result(
+        run_dir,
+        _result(),
+        {
+            "model": "/results/model.joblib",
+            "workbook": "/results/results.xlsx",
+        },
+    )
+    record_run_failure(
+        run_dir,
+        property_name="202_STN",
+        method="kfold",
+        error="synthetic failure",
+    )
+    finalize_run_manifest(
+        run_dir,
+        status="completed_with_errors",
+    )
+
+    manifest = read_run_manifest(run_dir)
+    assert manifest["status"] == "completed_with_errors"
+    assert len(manifest["results"]) == 1
+    assert len(manifest["failures"]) == 1
+    assert manifest["failures"][0]["property"] == "202_STN"
+    assert manifest["failures"][0]["method"] == "kfold"
+    assert manifest["failures"][0]["error"] == "synthetic failure"
+
+
+def test_run_history_is_newest_first_and_skips_hidden_dirs(tmp_path: Path):
+    older = tmp_path / "20260922_120000_000000"
+    newer = tmp_path / "20260923_120000_000000"
+    hidden = tmp_path / ".soil_mir_cache"
+    older.mkdir()
+    newer.mkdir()
+    hidden.mkdir()
+
+    initialize_run_manifest(
+        older,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    initialize_run_manifest(
+        newer,
+        properties=["202_STN"],
+        methods=["logo"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+
+    history = list_run_history(tmp_path)
+    assert [Path(item["run_dir"]).name for item in history] == [
+        newer.name,
+        older.name,
+    ]
+    assert all(
+        not Path(item["run_dir"]).name.startswith(".")
+        for item in history
+    )
+
+
+
+def test_retry_replaces_failure_and_does_not_duplicate_result(
+    tmp_path: Path,
+):
+    run_dir = tmp_path / "retry"
+    run_dir.mkdir()
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    record_run_failure(
+        run_dir,
+        property_name="202_STC",
+        method="kfold",
+        error="first failure",
+    )
+    record_run_failure(
+        run_dir,
+        property_name="202_STC",
+        method="kfold",
+        error="second failure",
+    )
+
+    manifest = read_run_manifest(
+        run_dir
+    )
+    assert len(manifest["failures"]) == 1
+    assert manifest["failures"][0]["error"] == "second failure"
+
+    record_run_result(
+        run_dir,
+        _result(),
+        {
+            "model": "/results/model.joblib",
+            "workbook": "/results/results.xlsx",
+        },
+    )
+    record_run_result(
+        run_dir,
+        _result(),
+        {
+            "model": "/results/model.joblib",
+            "workbook": "/results/results.xlsx",
+        },
+    )
+
+    manifest = read_run_manifest(
+        run_dir
+    )
+    assert manifest["failures"] == []
+    assert len(manifest["results"]) == 1
+
+
+def test_resume_manifest_preserves_completed_results(
+    tmp_path: Path,
+):
+    run_dir = tmp_path / "resume"
+    run_dir.mkdir()
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    record_run_result(
+        run_dir,
+        _result(),
+        {
+            "model": "/results/model.joblib",
+            "workbook": "/results/results.xlsx",
+        },
+    )
+    finalize_run_manifest(
+        run_dir,
+        status="cancelled",
+    )
+
+    resumed = resume_run_manifest(
+        run_dir
+    )
+
+    assert resumed["status"] == "running"
+    assert len(resumed["results"]) == 1
+    assert "finished_at" not in resumed
