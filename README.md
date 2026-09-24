@@ -51,9 +51,11 @@ closed.
 
 ## Mac launcher
 
-On macOS, `run_app.command` is the local launcher. It creates a project-local `.venv` when needed,
-installs/updates the app dependencies when `pyproject.toml` changes, and starts Streamlit. After the
-first setup, repeated launches reuse the same environment.
+On macOS, `run_app.command` is the local launcher. It verifies Python 3.10+, creates or repairs a
+project-local `.venv` when needed, clearly reports first-run dependency installation progress,
+installs/updates dependencies when `pyproject.toml` changes, and starts Streamlit. After the first
+setup, repeated launches reuse the same environment. If setup fails, the launcher keeps the error
+visible so the Terminal output can be copied for troubleshooting.
 
 Developers can still launch with:
 
