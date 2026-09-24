@@ -14,9 +14,14 @@ from soil_mir.io.reference import (
     load_property_metadata,
     read_property_sheet,
 )
+from soil_mir.modeling import fit_calibration_model
 from soil_mir.regions import prepare_region_config
 from soil_mir.transforms import apply_transform
-from soil_mir.validation import outer_splits, run_validation
+from soil_mir.validation import (
+    numerical_thread_context,
+    outer_splits,
+    run_validation,
+)
 
 
 @dataclass(frozen=True)
@@ -321,6 +326,133 @@ def run_validation_analysis(
         }
     )
     return result
+
+
+def refit_final_model_only(
+    dataset: CalibrationDataset,
+    *,
+    method: str,
+    max_rank: int,
+    region_search_n_windows: int,
+    rmsecv_tolerance_pct: float,
+    sg_window: int,
+    sg_polyorder: int,
+    random_seed: int,
+    internal_cv_folds: int,
+    outer_cv_folds: int,
+    n_repeats: int,
+    validation_fraction: float,
+    ks_representation: str,
+    ks_pca_variance: float,
+    wn_min: float,
+    wn_max: float,
+    outer_n_jobs: int = 1,
+    inner_thread_limit: int | None = 1,
+) -> dict:
+    """Refit only the final all-data model at a selected tolerance.
+
+    No outer validation splits are rerun. The internal final-calibration
+    search is rerun on all eligible calibration samples so the resulting
+    model follows the same scientific selection path as a full run.
+    """
+    cfg = {
+        "wn_min": float(wn_min),
+        "wn_max": float(wn_max),
+        "exclude_co2": dataset.exclude_co2,
+        "co2_exclude_min": 2300.0,
+        "co2_exclude_max": 2400.0,
+        "sg_window": int(sg_window),
+        "sg_polyorder": int(sg_polyorder),
+        "max_rank": int(max_rank),
+        "region_search_n_windows": int(
+            region_search_n_windows
+        ),
+        "rmsecv_tolerance_pct": float(
+            rmsecv_tolerance_pct
+        ),
+        "outlier_max_pct": 0.0,
+        "random_seed": int(random_seed),
+        "internal_cv_folds": int(
+            internal_cv_folds
+        ),
+        "outer_cv_folds": int(
+            outer_cv_folds
+        ),
+        "n_repeats": int(n_repeats),
+        "validation_fraction": float(
+            validation_fraction
+        ),
+        "ks_representation": str(
+            ks_representation
+        ),
+        "ks_pca_variance": float(
+            ks_pca_variance
+        ),
+        "outer_n_jobs": int(
+            outer_n_jobs
+        ),
+        "inner_thread_limit": (
+            None
+            if inner_thread_limit is None
+            else int(inner_thread_limit)
+        ),
+        "method": str(method),
+        "property_name": dataset.property_name,
+        "units": dataset.units,
+        "transform": dataset.transform,
+        "ref_min": dataset.reference_filter_min,
+        "ref_max": dataset.reference_filter_max,
+        "excluded_reference_rows": (
+            dataset.excluded_reference_rows
+        ),
+        "excluded_reference_samples": (
+            dataset.excluded_reference_samples
+        ),
+        "model_role": "final_all_samples",
+    }
+    cfg = prepare_region_config(
+        cfg,
+        dataset.wavenumbers,
+    )
+
+    with numerical_thread_context(cfg):
+        (
+            final_model,
+            final_settings,
+            removed_samples,
+            final_search,
+        ) = fit_calibration_model(
+            dataset.X,
+            dataset.y,
+            dataset.sample_ids,
+            dataset.wavenumbers,
+            cfg,
+            dataset.group_labels,
+        )
+
+    final_model.update(
+        artifact_role="final_only_refit",
+        outer_validation_rerun=False,
+        refit_tolerance_pct=float(
+            rmsecv_tolerance_pct
+        ),
+    )
+    return {
+        "property": dataset.property_name,
+        "method": str(method),
+        "final_model": final_model,
+        "final_settings": final_settings,
+        "final_search": final_search,
+        "removed_samples": list(
+            removed_samples
+        ),
+        "config": cfg,
+        "dataset": dataset,
+        "refit_tolerance_pct": float(
+            rmsecv_tolerance_pct
+        ),
+        "outer_validation_rerun": False,
+    }
 
 
 def preflight_validation_methods(
