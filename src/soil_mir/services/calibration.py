@@ -51,6 +51,77 @@ class CalibrationDataset:
     alignment_reference_points: int = 0
     shared_spectral_points: int = 0
     endpoint_trimmed_points: int = 0
+    group_column_present: bool = False
+    group_labels_complete: bool = False
+    group_count: int = 0
+    missing_group_samples: int = 0
+
+
+def _normalise_group_labels(
+    frame: pd.DataFrame,
+    columns: ColumnConfig,
+) -> tuple[np.ndarray, bool, bool, int, int]:
+    """Keep all reference rows while normalising optional group metadata."""
+    if columns.group not in frame.columns:
+        return (
+            np.full(len(frame), "", dtype=object),
+            False,
+            False,
+            0,
+            int(frame[columns.sample_id].nunique()),
+        )
+
+    labels = (
+        frame[columns.group]
+        .where(frame[columns.group].notna(), "")
+        .astype(str)
+        .str.strip()
+        .copy()
+    )
+    samples = frame[columns.sample_id].astype(str)
+
+    for sample in samples.unique():
+        sample_mask = samples == sample
+        known = labels.loc[
+            sample_mask & (labels != "")
+        ].unique()
+        if len(known) > 1:
+            raise ValueError(
+                f"Sample {sample!r} has conflicting Group values."
+            )
+        if len(known) == 1:
+            labels.loc[
+                sample_mask & (labels == "")
+            ] = known[0]
+
+    missing_sample_mask = (
+        pd.DataFrame(
+            {
+                "Sample": samples,
+                "Group": labels,
+            }
+        )
+        .groupby("Sample")["Group"]
+        .first()
+        .eq("")
+    )
+    missing_group_samples = int(
+        missing_sample_mask.sum()
+    )
+    complete = bool(
+        missing_group_samples == 0
+        and len(labels) > 0
+    )
+    group_count = int(
+        labels[labels != ""].nunique()
+    )
+    return (
+        labels.to_numpy(dtype=object),
+        True,
+        complete,
+        group_count,
+        missing_group_samples,
+    )
 
 
 def load_calibration_dataset(
@@ -76,7 +147,6 @@ def load_calibration_dataset(
         columns.sample_id,
         columns.reference_value,
         columns.reference_file,
-        columns.group,
     ]
     frame = frame.dropna(subset=required).copy()
     if frame.empty:
@@ -185,7 +255,16 @@ def load_calibration_dataset(
     X = np.vstack(matrices)
     y = frame[columns.reference_value].to_numpy(dtype=float)
     sample_ids = frame[columns.sample_id].astype(str).to_numpy()
-    group_labels = frame[columns.group].astype(str).to_numpy()
+    (
+        group_labels,
+        group_column_present,
+        group_labels_complete,
+        group_count,
+        missing_group_samples,
+    ) = _normalise_group_labels(
+        frame,
+        columns,
+    )
 
     mask = (
         (target_axis >= wn_min)
@@ -240,6 +319,16 @@ def load_calibration_dataset(
         ),
         endpoint_trimmed_points=(
             endpoint_trimmed_points
+        ),
+        group_column_present=(
+            group_column_present
+        ),
+        group_labels_complete=(
+            group_labels_complete
+        ),
+        group_count=group_count,
+        missing_group_samples=(
+            missing_group_samples
         ),
     )
 
@@ -301,6 +390,10 @@ def run_validation_analysis(
         "excluded_reference_rows": dataset.excluded_reference_rows,
         "excluded_reference_samples": dataset.excluded_reference_samples,
         "model_role": "final_all_samples",
+        "group_column_present": dataset.group_column_present,
+        "group_labels_complete": dataset.group_labels_complete,
+        "group_count": dataset.group_count,
+        "missing_group_samples": dataset.missing_group_samples,
     }
     cfg = prepare_region_config(
         cfg,
@@ -409,6 +502,10 @@ def refit_final_model_only(
             dataset.excluded_reference_samples
         ),
         "model_role": "final_all_samples",
+        "group_column_present": dataset.group_column_present,
+        "group_labels_complete": dataset.group_labels_complete,
+        "group_count": dataset.group_count,
+        "missing_group_samples": dataset.missing_group_samples,
     }
     cfg = prepare_region_config(
         cfg,
@@ -533,6 +630,10 @@ def preflight_validation_methods(
             "excluded_reference_rows": dataset.excluded_reference_rows,
             "excluded_reference_samples": dataset.excluded_reference_samples,
             "model_role": "final_all_samples",
+        "group_column_present": dataset.group_column_present,
+        "group_labels_complete": dataset.group_labels_complete,
+        "group_count": dataset.group_count,
+        "missing_group_samples": dataset.missing_group_samples,
         }
 
         try:
@@ -553,10 +654,15 @@ def preflight_validation_methods(
                     "Method": method,
                     "Status": "Fail",
                     "Samples": dataset.unique_samples,
-                    "Groups": int(
-                        pd.Series(
-                            dataset.group_labels
-                        ).nunique()
+                    "Groups": dataset.group_count,
+                    "Group data": (
+                        "Complete"
+                        if dataset.group_labels_complete
+                        else (
+                            "Partial"
+                            if dataset.group_column_present
+                            else "Not provided"
+                        )
                     ),
                     "Outer splits": 0,
                     "Details": str(exc),
@@ -569,10 +675,15 @@ def preflight_validation_methods(
                     "Method": method,
                     "Status": "Pass",
                     "Samples": dataset.unique_samples,
-                    "Groups": int(
-                        pd.Series(
-                            dataset.group_labels
-                        ).nunique()
+                    "Groups": dataset.group_count,
+                    "Group data": (
+                        "Complete"
+                        if dataset.group_labels_complete
+                        else (
+                            "Partial"
+                            if dataset.group_column_present
+                            else "Not provided"
+                        )
                     ),
                     "Outer splits": len(splits),
                     "Details": split_info.get(

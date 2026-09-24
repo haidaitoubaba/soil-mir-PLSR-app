@@ -92,10 +92,22 @@ def run_data_acceptance(
                 "Reference rows": summary.rows,
                 "Loaded spectra": dataset.rows,
                 "Unique samples": dataset.unique_samples,
-                "Groups": int(
-                    pd.Series(
-                        dataset.group_labels
-                    ).nunique()
+                "Groups": (
+                    dataset.group_count
+                    if dataset.group_column_present
+                    else "Not provided"
+                ),
+                "Group data": (
+                    "Complete"
+                    if dataset.group_labels_complete
+                    else (
+                        "Partial"
+                        if dataset.group_column_present
+                        else "Not provided"
+                    )
+                ),
+                "Missing group samples": (
+                    dataset.missing_group_samples
                 ),
                 "Raw coverage min": (
                     dataset.raw_wavenumber_min

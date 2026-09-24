@@ -10,6 +10,7 @@ from scipy.spatial.distance import cdist
 from sklearn.decomposition import PCA
 from sklearn.model_selection import (
     LeaveOneGroupOut,
+    ShuffleSplit,
     StratifiedShuffleSplit,
 )
 from threadpoolctl import threadpool_limits
@@ -28,7 +29,8 @@ from soil_mir.splits import (
     check_splits,
     grouped_splits,
     inner_split_info,
-    validate_sample_labels,
+    treatment_labels_complete,
+    validate_sample_ids,
 )
 
 
@@ -218,12 +220,22 @@ def outer_splits(
     labels: np.ndarray,
     cfg: dict,
 ) -> tuple[list, dict]:
-    validate_sample_labels(keys, labels)
+    validate_sample_ids(keys)
+    labels = np.asarray(labels, dtype=object)
+    if len(keys) != len(labels):
+        raise ValueError(
+            "Sample IDs and treatment labels must be aligned."
+        )
+    labels_complete = treatment_labels_complete(
+        keys,
+        labels,
+    )
     method = cfg["method"]
     seed = cfg["random_seed"]
     info = {
         "method": method,
         "seed": seed,
+        "group_labels_complete": labels_complete,
     }
 
     if method == "kfold":
@@ -236,23 +248,65 @@ def outer_splits(
         )
         info.update(details)
     elif method == "monte_carlo":
-        sample_df = pd.DataFrame(
-            {
-                "Sample": keys,
-                "Group": labels,
-            }
-        ).drop_duplicates("Sample")
+        sample_df = (
+            pd.DataFrame(
+                {
+                    "Sample": keys,
+                    "Group": labels,
+                }
+            )
+            .drop_duplicates("Sample")
+            .reset_index(drop=True)
+        )
+        fraction = float(
+            cfg["validation_fraction"]
+        )
+        n_samples = len(sample_df)
+        n_test = int(
+            np.ceil(n_samples * fraction)
+        )
+        n_train = n_samples - n_test
+
+        use_stratified = False
+        if labels_complete:
+            group_counts = (
+                sample_df["Group"]
+                .astype(str)
+                .value_counts()
+            )
+            n_groups = len(group_counts)
+            use_stratified = bool(
+                n_groups > 1
+                and group_counts.min() >= 2
+                and n_test >= n_groups
+                and n_train >= n_groups
+            )
+
         splits = []
         for repeat in range(cfg["n_repeats"]):
-            train_samples, test_samples = next(
+            splitter = (
                 StratifiedShuffleSplit(
                     n_splits=1,
-                    test_size=cfg["validation_fraction"],
+                    test_size=fraction,
                     random_state=seed + repeat,
-                ).split(
+                )
+                if use_stratified
+                else ShuffleSplit(
+                    n_splits=1,
+                    test_size=fraction,
+                    random_state=seed + repeat,
+                )
+            )
+            split_args = (
+                (
                     sample_df["Sample"],
                     sample_df["Group"],
                 )
+                if use_stratified
+                else (sample_df["Sample"],)
+            )
+            train_samples, test_samples = next(
+                splitter.split(*split_args)
             )
             splits.append(
                 (
@@ -275,23 +329,33 @@ def outer_splits(
                 )
             )
         info.update(
-            splitter="StratifiedShuffleSplit(sample)",
+            splitter=(
+                "StratifiedShuffleSplit(sample)"
+                if use_stratified
+                else "ShuffleSplit(sample)"
+            ),
+            group_stratification_used=use_stratified,
             repeats=len(splits),
-            validation_fraction=cfg[
-                "validation_fraction"
-            ],
+            validation_fraction=fraction,
         )
     elif method in ("loso", "logo"):
-        if (
-            method == "logo"
-            and len(np.unique(labels)) < 3
-        ):
-            raise ValueError(
-                "Outer LOGO requires at least three treatments."
+        if method == "logo":
+            if not labels_complete:
+                raise ValueError(
+                    "Leave-One-Group-Out (LOGO) requires a Group column "
+                    "with non-missing group labels for every sample."
+                )
+            normalised_labels = np.asarray(
+                [str(value).strip() for value in labels]
             )
-        split_groups = (
-            keys if method == "loso" else labels
-        )
+            if len(np.unique(normalised_labels)) < 3:
+                raise ValueError(
+                    "Outer LOGO requires at least three treatments."
+                )
+            split_groups = normalised_labels
+        else:
+            split_groups = keys
+
         splits = list(
             LeaveOneGroupOut().split(
                 np.zeros(len(keys)),
@@ -302,6 +366,9 @@ def outer_splits(
             "LeaveOneGroupOut(sample)"
             if method == "loso"
             else "LeaveOneGroupOut(treatment)"
+        )
+        info["group_stratification_used"] = (
+            method == "logo"
         )
     elif method == "kennard_stone":
         _, split_cfg = select_region(
@@ -323,6 +390,7 @@ def outer_splits(
             )
         ]
         info.update(ks_info)
+        info["group_stratification_used"] = False
     else:
         raise ValueError(
             f"Unsupported validation method: {method}"

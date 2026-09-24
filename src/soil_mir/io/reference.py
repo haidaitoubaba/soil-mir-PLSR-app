@@ -17,7 +17,9 @@ class PropertySummary:
     sheet: str
     rows: int
     unique_samples: int
-    groups: int
+    groups: int | None
+    group_column_present: bool
+    missing_group_values: int
     missing_reference_values: int
     zero_reference_values: int
     negative_reference_values: int
@@ -146,11 +148,31 @@ def summarize_property(
     numeric = pd.to_numeric(frame[columns.reference_value], errors="coerce")
     nonempty = numeric.dropna()
     meta = (metadata or {}).get(sheet, {})
+    group_column_present = columns.group in frame.columns
+    if group_column_present:
+        group_values = (
+            frame[columns.group]
+            .where(frame[columns.group].notna(), "")
+            .astype(str)
+            .str.strip()
+        )
+        groups = int(
+            group_values[group_values != ""].nunique()
+        )
+        missing_group_values = int(
+            (group_values == "").sum()
+        )
+    else:
+        groups = None
+        missing_group_values = 0
+
     return PropertySummary(
         sheet=sheet,
         rows=len(frame),
         unique_samples=int(frame[columns.sample_id].nunique(dropna=True)),
-        groups=int(frame[columns.group].nunique(dropna=True)),
+        groups=groups,
+        group_column_present=group_column_present,
+        missing_group_values=missing_group_values,
         missing_reference_values=int(numeric.isna().sum()),
         zero_reference_values=int((numeric == 0).sum()),
         negative_reference_values=int((numeric < 0).sum()),
