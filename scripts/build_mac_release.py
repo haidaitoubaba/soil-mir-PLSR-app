@@ -100,13 +100,19 @@ def build_bundle(output_dir: Path, label: str, commit: str) -> Path:
     version = validate_release_inputs()
     label = safe_label(label)
     commit = safe_label(commit) if commit else "unknown"
-    bundle_root = f"soil-mir-app-v{version}-{label}"
+    is_final_release = label in {version, f"v{version}"}
+    bundle_root = (
+        f"soil-mir-app-v{version}"
+        if is_final_release
+        else f"soil-mir-app-v{version}-{label}"
+    )
     archive = output_dir / f"{bundle_root}-mac.tar.gz"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    release_readme = f"""Soil MIR PLSR v{version} - macOS release candidate
+    release_kind = "release" if is_final_release else "release candidate"
+    release_readme = f"""Soil MIR PLSR v{version} - macOS {release_kind}
 
-This release candidate is the local-first Python distribution, not a signed standalone .app.
+This {release_kind} is the local-first Python distribution, not a signed standalone .app.
 
 Requirements
 ------------
