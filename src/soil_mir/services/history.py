@@ -125,3 +125,176 @@ def load_saved_run(manifest: dict) -> dict[str, dict]:
             "This run has no completed result artifacts to reopen."
         )
     return loaded
+
+
+
+def load_run_config(
+    run_dir: str | Path,
+) -> dict:
+    path = Path(run_dir) / "Run_Config.json"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Run configuration not found: {path}"
+        )
+    try:
+        payload = json.loads(
+            path.read_text(encoding="utf-8")
+        )
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Run configuration is not valid JSON: {path}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Run configuration must be a JSON object: {path}"
+        )
+    return payload
+
+
+def run_config_session_values(
+    config: dict,
+    *,
+    run_dir: str | Path,
+) -> dict:
+    settings = config.get(
+        "analysis_settings",
+        {},
+    )
+    if not isinstance(settings, dict):
+        raise ValueError(
+            "Run configuration analysis_settings must be an object."
+        )
+
+    required = (
+        "properties",
+        "methods",
+        "spectra_dir",
+        "reference_excel",
+    )
+    missing = [
+        key
+        for key in required
+        if not config.get(key)
+    ]
+    if missing:
+        raise ValueError(
+            "Run configuration is missing: "
+            + ", ".join(missing)
+        )
+
+    run_path = Path(run_dir)
+    output_dir = config.get(
+        "output_dir",
+        str(run_path.parent),
+    )
+
+    mapping = {
+        "max_rank": "soil_mir_max_rank",
+        "region_search_n_windows": "soil_mir_region_windows",
+        "rmsecv_tolerance_pct": "soil_mir_tolerance",
+        "sg_window": "soil_mir_sg_window",
+        "sg_polyorder": "soil_mir_sg_polyorder",
+        "random_seed": "soil_mir_random_seed",
+        "internal_cv_folds": "soil_mir_internal_cv_folds",
+        "outer_cv_folds": "soil_mir_outer_cv_folds",
+        "n_repeats": "soil_mir_n_repeats",
+        "validation_fraction": "soil_mir_validation_fraction",
+        "ks_representation": "soil_mir_ks_representation",
+        "ks_pca_variance": "soil_mir_ks_pca_variance",
+        "outer_n_jobs": "soil_mir_outer_n_jobs",
+        "inner_thread_limit": "soil_mir_inner_thread_limit",
+    }
+    values = {
+        "soil_mir_spectra_dir": str(
+            config["spectra_dir"]
+        ),
+        "soil_mir_reference_excel": str(
+            config["reference_excel"]
+        ),
+        "soil_mir_output_dir": str(
+            output_dir
+        ),
+        "soil_mir_selected_properties": list(
+            config["properties"]
+        ),
+        "soil_mir_validation_methods": list(
+            config["methods"]
+        ),
+        "soil_mir_reference_ranges": dict(
+            config.get(
+                "reference_ranges",
+                {},
+            )
+        ),
+        "soil_mir_exclude_co2": bool(
+            config.get(
+                "fallback_exclude_co2",
+                False,
+            )
+        ),
+    }
+    for source, target in mapping.items():
+        if source in settings:
+            values[target] = settings[source]
+
+    if (
+        "wn_min" in settings
+        and "wn_max" in settings
+    ):
+        values["soil_mir_wn_range"] = (
+            settings["wn_min"],
+            settings["wn_max"],
+        )
+
+    # Runs created before parallelism was added were sequential.
+    values.setdefault(
+        "soil_mir_outer_n_jobs",
+        1,
+    )
+    values.setdefault(
+        "soil_mir_inner_thread_limit",
+        1,
+    )
+    return values
+
+
+def completed_run_keys(
+    manifest: dict,
+) -> set[str]:
+    return {
+        (
+            f"{record.get('property', '')}::"
+            f"{record.get('method', '')}"
+        )
+        for record in manifest.get(
+            "results",
+            [],
+        )
+        if record.get("property")
+        and record.get("method")
+    }
+
+
+def requested_run_keys(
+    manifest: dict,
+) -> set[str]:
+    return {
+        f"{property_name}::{method}"
+        for property_name in manifest.get(
+            "properties",
+            [],
+        )
+        for method in manifest.get(
+            "methods",
+            [],
+        )
+    }
+
+
+def pending_run_keys(
+    manifest: dict,
+) -> set[str]:
+    return (
+        requested_run_keys(manifest)
+        - completed_run_keys(manifest)
+    )

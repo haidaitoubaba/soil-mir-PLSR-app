@@ -9,6 +9,7 @@ from soil_mir.reporting import (
     read_run_manifest,
     record_run_failure,
     record_run_result,
+    resume_run_manifest,
 )
 
 
@@ -135,3 +136,93 @@ def test_run_history_is_newest_first_and_skips_hidden_dirs(tmp_path: Path):
         not Path(item["run_dir"]).name.startswith(".")
         for item in history
     )
+
+
+
+def test_retry_replaces_failure_and_does_not_duplicate_result(
+    tmp_path: Path,
+):
+    run_dir = tmp_path / "retry"
+    run_dir.mkdir()
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    record_run_failure(
+        run_dir,
+        property_name="202_STC",
+        method="kfold",
+        error="first failure",
+    )
+    record_run_failure(
+        run_dir,
+        property_name="202_STC",
+        method="kfold",
+        error="second failure",
+    )
+
+    manifest = read_run_manifest(
+        run_dir
+    )
+    assert len(manifest["failures"]) == 1
+    assert manifest["failures"][0]["error"] == "second failure"
+
+    record_run_result(
+        run_dir,
+        _result(),
+        {
+            "model": "/results/model.joblib",
+            "workbook": "/results/results.xlsx",
+        },
+    )
+    record_run_result(
+        run_dir,
+        _result(),
+        {
+            "model": "/results/model.joblib",
+            "workbook": "/results/results.xlsx",
+        },
+    )
+
+    manifest = read_run_manifest(
+        run_dir
+    )
+    assert manifest["failures"] == []
+    assert len(manifest["results"]) == 1
+
+
+def test_resume_manifest_preserves_completed_results(
+    tmp_path: Path,
+):
+    run_dir = tmp_path / "resume"
+    run_dir.mkdir()
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    record_run_result(
+        run_dir,
+        _result(),
+        {
+            "model": "/results/model.joblib",
+            "workbook": "/results/results.xlsx",
+        },
+    )
+    finalize_run_manifest(
+        run_dir,
+        status="cancelled",
+    )
+
+    resumed = resume_run_manifest(
+        run_dir
+    )
+
+    assert resumed["status"] == "running"
+    assert len(resumed["results"]) == 1
+    assert "finished_at" not in resumed

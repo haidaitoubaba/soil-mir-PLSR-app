@@ -6,7 +6,12 @@ import pandas as pd
 import streamlit as st
 
 from soil_mir.reporting import list_run_history
-from soil_mir.services.history import load_saved_run
+from soil_mir.services.history import (
+    load_run_config,
+    load_saved_run,
+    pending_run_keys,
+    run_config_session_values,
+)
 
 
 st.set_page_config(
@@ -88,6 +93,66 @@ for manifest in history:
         error = manifest.get("error", "")
         if error:
             st.error(error)
+
+        pending = pending_run_keys(
+            manifest
+        )
+        if pending:
+            st.write(
+                "**Pending analyses:** "
+                + ", ".join(
+                    sorted(pending)
+                )
+            )
+            if st.button(
+                "Resume incomplete run",
+                key=(
+                    f"resume_history_"
+                    f"{manifest.get('run_id')}"
+                ),
+                type="primary",
+            ):
+                try:
+                    config = load_run_config(
+                        manifest.get(
+                            "run_dir",
+                            "",
+                        )
+                    )
+                    session_values = (
+                        run_config_session_values(
+                            config,
+                            run_dir=manifest.get(
+                                "run_dir",
+                                "",
+                            ),
+                        )
+                    )
+                except Exception as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state.update(
+                        session_values
+                    )
+                    st.session_state[
+                        "soil_mir_resume_run_dir"
+                    ] = manifest.get(
+                        "run_dir",
+                        "",
+                    )
+                    for key in (
+                        "soil_mir_preflight_table",
+                        "soil_mir_preflight_datasets",
+                        "soil_mir_preflight_passed",
+                        "soil_mir_preflight_signature",
+                    ):
+                        st.session_state.pop(
+                            key,
+                            None,
+                        )
+                    st.switch_page(
+                        "pages/3_Run.py"
+                    )
 
         if manifest.get("results"):
             if st.button(

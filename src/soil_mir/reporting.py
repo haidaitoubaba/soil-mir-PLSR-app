@@ -397,7 +397,33 @@ def record_run_result(
         "elapsed_seconds": float(result["elapsed_seconds"]),
         "artifacts": dict(artifacts),
     }
+    manifest["results"] = [
+        existing
+        for existing in manifest.get(
+            "results",
+            [],
+        )
+        if not (
+            existing.get("property")
+            == result["property"]
+            and existing.get("method")
+            == result["method"]
+        )
+    ]
     manifest["results"].append(record)
+    manifest["failures"] = [
+        failure
+        for failure in manifest.get(
+            "failures",
+            [],
+        )
+        if not (
+            failure.get("property")
+            == result["property"]
+            and failure.get("method")
+            == result["method"]
+        )
+    ]
     manifest["updated_at"] = _utc_now()
     write_json(Path(run_dir) / RUN_MANIFEST_NAME, manifest)
     return manifest
@@ -411,7 +437,19 @@ def record_run_failure(
     error: str,
 ) -> dict:
     manifest = read_run_manifest(run_dir)
-    failures = manifest.setdefault("failures", [])
+    failures = [
+        failure
+        for failure in manifest.setdefault(
+            "failures",
+            [],
+        )
+        if not (
+            failure.get("property")
+            == str(property_name)
+            and failure.get("method")
+            == str(method)
+        )
+    ]
     failures.append(
         {
             "property": str(property_name),
@@ -420,8 +458,25 @@ def record_run_failure(
             "recorded_at": _utc_now(),
         }
     )
+    manifest["failures"] = failures
     manifest["updated_at"] = _utc_now()
     write_json(Path(run_dir) / RUN_MANIFEST_NAME, manifest)
+    return manifest
+
+
+def resume_run_manifest(
+    run_dir: str | Path,
+) -> dict:
+    """Mark an existing incomplete run active again without deleting checkpoints."""
+    manifest = read_run_manifest(run_dir)
+    manifest["status"] = "running"
+    manifest["error"] = ""
+    manifest["updated_at"] = _utc_now()
+    manifest.pop("finished_at", None)
+    write_json(
+        Path(run_dir) / RUN_MANIFEST_NAME,
+        manifest,
+    )
     return manifest
 
 

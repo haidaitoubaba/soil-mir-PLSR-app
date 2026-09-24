@@ -12,10 +12,17 @@ from soil_mir.reporting import (
     export_validation_result,
     finalize_run_manifest,
     initialize_run_manifest,
+    read_run_manifest,
     record_run_failure,
     record_run_result,
+    resume_run_manifest,
     write_json,
 )
+from soil_mir.services.history import (
+    load_saved_run,
+    pending_run_keys,
+)
+
 from soil_mir.services.calibration import (
     load_calibration_dataset,
     preflight_validation_methods,
@@ -169,6 +176,39 @@ st.write(
     f"**{settings['outer_n_jobs']} outer workers**, "
     f"**{settings['inner_thread_limit']} inner numerical thread(s) per worker**"
 )
+
+
+resume_run_dir_text = st.session_state.get(
+    "soil_mir_resume_run_dir",
+    "",
+)
+resume_manifest = None
+if resume_run_dir_text:
+    try:
+        resume_manifest = read_run_manifest(
+            resume_run_dir_text
+        )
+    except Exception as exc:
+        st.warning(
+            "The selected run can no longer be resumed: "
+            f"{exc}"
+        )
+        st.session_state.pop(
+            "soil_mir_resume_run_dir",
+            None,
+        )
+        resume_run_dir_text = ""
+    else:
+        pending = pending_run_keys(
+            resume_manifest
+        )
+        st.info(
+            "Resume mode: "
+            f"{resume_manifest.get('run_id', Path(resume_run_dir_text).name)}. "
+            f"{len(resume_manifest.get('results', []))} analysis combination(s) "
+            f"already completed; {len(pending)} remain. "
+            "Preflight will run again, and completed combinations will be skipped."
+        )
 
 if "loso" in methods:
     st.warning(
@@ -440,60 +480,134 @@ if start_validation:
         )
         st.stop()
 
-    run_dir = create_run_directory(
-        st.session_state[
-            "soil_mir_output_dir"
-        ]
+    is_resume = bool(
+        resume_run_dir_text
     )
-    initialize_run_manifest(
-        run_dir,
-        properties=properties,
-        methods=methods,
-        spectra_dir=st.session_state[
-            "soil_mir_spectra_dir"
-        ],
-        reference_excel=st.session_state[
-            "soil_mir_reference_excel"
-        ],
-    )
-    write_json(
-        run_dir / "Run_Config.json",
-        {
-            "properties": properties,
-            "methods": methods,
-            "spectra_dir": st.session_state[
+    if is_resume:
+        run_dir = Path(
+            resume_run_dir_text
+        )
+        try:
+            manifest = resume_run_manifest(
+                run_dir
+            )
+            results = (
+                load_saved_run(manifest)
+                if manifest.get("results")
+                else {}
+            )
+        except Exception as exc:
+            st.error(
+                "The existing run could not be resumed."
+            )
+            st.exception(exc)
+            st.stop()
+    else:
+        run_dir = create_run_directory(
+            st.session_state[
+                "soil_mir_output_dir"
+            ]
+        )
+        initialize_run_manifest(
+            run_dir,
+            properties=properties,
+            methods=methods,
+            spectra_dir=st.session_state[
                 "soil_mir_spectra_dir"
             ],
-            "reference_excel": (
-                st.session_state[
-                    "soil_mir_reference_excel"
-                ]
-            ),
-            "output_dir": st.session_state[
-                "soil_mir_output_dir"
+            reference_excel=st.session_state[
+                "soil_mir_reference_excel"
             ],
-            "analysis_settings": settings,
-            "reference_ranges": (
-                reference_ranges
-            ),
-        },
-    )
+        )
+        write_json(
+            run_dir / "Run_Config.json",
+            {
+                "properties": properties,
+                "methods": methods,
+                "spectra_dir": st.session_state[
+                    "soil_mir_spectra_dir"
+                ],
+                "reference_excel": (
+                    st.session_state[
+                        "soil_mir_reference_excel"
+                    ]
+                ),
+                "output_dir": st.session_state[
+                    "soil_mir_output_dir"
+                ],
+                "analysis_settings": settings,
+                "reference_ranges": (
+                    reference_ranges
+                ),
+                "fallback_exclude_co2": bool(
+                    st.session_state.get(
+                        "soil_mir_exclude_co2",
+                        False,
+                    )
+                ),
+            },
+        )
+        results = {}
 
-    results = {}
-    total = len(properties) * len(methods)
+    requested_pairs = [
+        (
+            property_sheet,
+            method,
+        )
+        for property_sheet in properties
+        for method in methods
+    ]
+    pending_pairs = [
+        pair
+        for pair in requested_pairs
+        if (
+            f"{pair[0]}::{pair[1]}"
+            not in results
+        )
+    ]
+
+    if not pending_pairs:
+        st.session_state[
+            "soil_mir_results"
+        ] = results
+        st.session_state[
+            "soil_mir_last_run_dir"
+        ] = str(run_dir)
+        st.session_state.pop(
+            "soil_mir_resume_run_dir",
+            None,
+        )
+        st.success(
+            "This run is already complete; there are no pending analyses."
+        )
+        st.stop()
+
+    total = len(pending_pairs)
     completed = 0
     failed_count = 0
     progress = st.progress(0.0)
     progress_note = st.empty()
 
     for property_sheet in properties:
+        property_pending = [
+            method
+            for method in methods
+            if (
+                property_sheet,
+                method,
+            )
+            in pending_pairs
+        ]
+        if not property_pending:
+            continue
+
         dataset = datasets[property_sheet]
         property_failures = 0
         with st.status(
             f"Running {property_sheet}",
             expanded=True,
         ) as status:
-            for method in methods:
+            for method in property_pending:
                 status.update(
                     label=(
                         f"{property_sheet} / {method}: "
@@ -605,6 +719,13 @@ if start_validation:
                     expanded=False,
                 )
 
+    manifest = read_run_manifest(
+        run_dir
+    )
+    still_pending = pending_run_keys(
+        manifest
+    )
+
     if not results:
         finalize_run_manifest(
             run_dir,
@@ -630,7 +751,7 @@ if start_validation:
     )
     final_status = (
         "completed_with_errors"
-        if failed_count
+        if still_pending
         else "completed"
     )
     finalize_run_manifest(
@@ -641,10 +762,10 @@ if start_validation:
     progress_note.caption(
         (
             "Run complete."
-            if not failed_count
+            if not still_pending
             else (
-                f"Run finished with {failed_count} failed "
-                "analysis combination(s). Successful results were preserved."
+                f"Run finished with {len(still_pending)} analysis "
+                "combination(s) still pending. Successful results were preserved."
             )
         )
     )
@@ -659,12 +780,20 @@ if start_validation:
         "soil_mir_last_comparison"
     ] = comparison_path
 
-    if failed_count:
+    if still_pending:
+        st.session_state[
+            "soil_mir_resume_run_dir"
+        ] = str(run_dir)
         st.warning(
-            "Validation finished with some errors. Successful analyses "
-            f"were saved to {run_dir}. Open Results or Run History."
+            "Validation finished with incomplete analyses. "
+            f"Successful analyses were saved to {run_dir}. "
+            "You can retry the pending combinations here or from Run History."
         )
     else:
+        st.session_state.pop(
+            "soil_mir_resume_run_dir",
+            None,
+        )
         st.success(
             "Validation completed and saved to "
             f"{run_dir}. Open the Results page."

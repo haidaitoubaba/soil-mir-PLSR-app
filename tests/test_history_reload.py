@@ -4,8 +4,12 @@ import pandas as pd
 import pytest
 
 from soil_mir.services.history import (
+    completed_run_keys,
+    load_run_config,
     load_saved_result,
     load_saved_run,
+    pending_run_keys,
+    run_config_session_values,
 )
 
 
@@ -157,3 +161,108 @@ def test_saved_result_rejects_missing_workbook(tmp_path):
                 },
             }
         )
+
+
+
+def test_resume_helpers_restore_run_configuration(
+    tmp_path,
+):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    config = {
+        "properties": ["202_STC", "202_STN"],
+        "methods": ["kfold"],
+        "spectra_dir": "/data/spectra",
+        "reference_excel": "/data/reference.xlsx",
+        "output_dir": "/data/results",
+        "reference_ranges": {
+            "202_STC": {
+                "min": 0.1,
+                "max": None,
+            }
+        },
+        "fallback_exclude_co2": True,
+        "analysis_settings": {
+            "max_rank": 15,
+            "region_search_n_windows": 7,
+            "rmsecv_tolerance_pct": 5.0,
+            "sg_window": 11,
+            "sg_polyorder": 2,
+            "random_seed": 42,
+            "internal_cv_folds": 10,
+            "outer_cv_folds": 5,
+            "n_repeats": 30,
+            "validation_fraction": 0.2,
+            "ks_representation": "raw",
+            "ks_pca_variance": 0.99,
+            "wn_min": 600,
+            "wn_max": 4000,
+            "outer_n_jobs": 4,
+            "inner_thread_limit": 1,
+        },
+    }
+    (run_dir / "Run_Config.json").write_text(
+        __import__("json").dumps(config),
+        encoding="utf-8",
+    )
+
+    loaded = load_run_config(run_dir)
+    values = run_config_session_values(
+        loaded,
+        run_dir=run_dir,
+    )
+
+    assert values[
+        "soil_mir_selected_properties"
+    ] == ["202_STC", "202_STN"]
+    assert values[
+        "soil_mir_validation_methods"
+    ] == ["kfold"]
+    assert values[
+        "soil_mir_wn_range"
+    ] == (600, 4000)
+    assert values[
+        "soil_mir_outer_n_jobs"
+    ] == 4
+    assert values[
+        "soil_mir_inner_thread_limit"
+    ] == 1
+    assert values[
+        "soil_mir_exclude_co2"
+    ] is True
+
+
+def test_pending_run_keys_skip_completed_combinations():
+    manifest = {
+        "properties": [
+            "202_STC",
+            "202_STN",
+        ],
+        "methods": [
+            "kfold",
+            "logo",
+        ],
+        "results": [
+            {
+                "property": "202_STC",
+                "method": "kfold",
+            },
+            {
+                "property": "202_STN",
+                "method": "logo",
+            },
+        ],
+    }
+
+    assert completed_run_keys(
+        manifest
+    ) == {
+        "202_STC::kfold",
+        "202_STN::logo",
+    }
+    assert pending_run_keys(
+        manifest
+    ) == {
+        "202_STC::logo",
+        "202_STN::kfold",
+    }
