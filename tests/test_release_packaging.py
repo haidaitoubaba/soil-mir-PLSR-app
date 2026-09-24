@@ -68,7 +68,7 @@ def test_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> None:
             "--output-dir",
             str(output_dir),
             "--label",
-            "v0.2.0",
+            "v0.2.1",
             "--commit",
             "cafebabe",
         ],
@@ -79,13 +79,13 @@ def test_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> None:
     )
 
     archive = Path(completed.stdout.strip())
-    assert archive.name == "soil-mir-app-v0.2.0-mac.tar.gz"
+    assert archive.name == "soil-mir-app-v0.2.1-mac.tar.gz"
 
     with tarfile.open(archive, "r:gz") as handle:
         roots = {name.split("/", 1)[0] for name in handle.getnames()}
-        assert roots == {"soil-mir-app-v0.2.0"}
+        assert roots == {"soil-mir-app-v0.2.1"}
         readme = handle.extractfile(
-            "soil-mir-app-v0.2.0/MAC_RELEASE_README.txt"
+            "soil-mir-app-v0.2.1/MAC_RELEASE_README.txt"
         )
         assert readme is not None
         text = readme.read().decode("utf-8")
@@ -159,7 +159,7 @@ def test_windows_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> N
             "--output-dir",
             str(output_dir),
             "--label",
-            "v0.2.0",
+            "v0.2.1",
             "--commit",
             "cafebabe",
         ],
@@ -170,13 +170,13 @@ def test_windows_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> N
     )
 
     archive = Path(completed.stdout.strip())
-    assert archive.name == "soil-mir-app-v0.2.0-windows.zip"
+    assert archive.name == "soil-mir-app-v0.2.1-windows.zip"
 
     with zipfile.ZipFile(archive) as handle:
         roots = {name.split("/", 1)[0] for name in handle.namelist()}
-        assert roots == {"soil-mir-app-v0.2.0"}
+        assert roots == {"soil-mir-app-v0.2.1"}
         text = handle.read(
-            "soil-mir-app-v0.2.0/WINDOWS_RELEASE_README.txt"
+            "soil-mir-app-v0.2.1/WINDOWS_RELEASE_README.txt"
         ).decode("utf-8")
         assert "Windows release\n" in text
         assert "Windows release candidate" not in text

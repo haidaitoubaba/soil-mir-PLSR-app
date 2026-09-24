@@ -1,11 +1,11 @@
-# Windows v0.2.0 Release Candidate Checklist
+# Windows v0.2.1 Release Candidate Checklist
 
-This checklist validates the Windows distribution for the cross-platform v0.2.0 release. Scientific
+This checklist validates the Windows distribution for the cross-platform v0.2.1 release. Scientific
 behavior must remain identical to the regression-tested core.
 
 ## Automated release gate
 
-- [ ] `pyproject.toml` and `src/soil_mir/__init__.py` both report `0.2.0`.
+- [ ] `pyproject.toml` and `src/soil_mir/__init__.py` both report `0.2.1`.
 - [ ] GitLab `ci_config_check` passes for macOS and Windows release inputs.
 - [ ] GitLab `lint` passes.
 - [ ] GitLab `pytest` passes, including shared launcher and scientific regression tests.
@@ -22,7 +22,9 @@ Run these checks from the Windows ZIP artifact, not from a development checkout.
 - [ ] Double-click `run_app.bat` on Windows 10 or Windows 11.
 - [ ] Confirm the launcher creates or reuses `.venv` and opens Soil MIR in the default browser.
 - [ ] Select spectra, reference workbook, and results folders using the native Windows dialogs.
-- [ ] Run preflight on a representative dataset.
+- [ ] Run preflight on a representative dataset with a complete `Group` column.
+- [ ] Run preflight on a representative dataset without a `Group` column; confirm K-fold,
+      Monte Carlo, LOSO, and Kennard–Stone can pass while LOGO reports a clear Group requirement.
 - [ ] Complete one small validation and open its saved result folder in Explorer.
 - [ ] Cancel and resume one run through Run History.
 - [ ] Send a saved model from Run History to Predict.

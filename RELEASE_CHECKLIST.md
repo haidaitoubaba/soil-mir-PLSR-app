@@ -1,11 +1,11 @@
-# macOS v0.2.0 Release Candidate Checklist
+# macOS v0.2.1 Release Candidate Checklist
 
-This checklist validates the macOS distribution for the cross-platform v0.2.0 release. Do not add
+This checklist validates the macOS distribution for the cross-platform v0.2.1 release. Do not add
 product features while completing it.
 
 ## Automated release gate
 
-- [ ] `pyproject.toml` and `src/soil_mir/__init__.py` both report `0.2.0`.
+- [ ] `pyproject.toml` and `src/soil_mir/__init__.py` both report `0.2.1`.
 - [ ] GitLab `ci_config_check` passes.
 - [ ] GitLab `lint` passes.
 - [ ] GitLab `pytest` passes, including scientific regression tests.
@@ -22,7 +22,9 @@ Run these checks from the generated tar.gz artifact, not from the development ch
 - [ ] With Python 3.10+ installed, double-click `run_app.command`.
 - [ ] Confirm the launcher creates or reuses `.venv` and opens Soil MIR in the default browser.
 - [ ] Select spectra, reference workbook, and results folders with Finder.
-- [ ] Run preflight on a representative dataset.
+- [ ] Run preflight on a representative dataset with a complete `Group` column.
+- [ ] Run preflight on a representative dataset without a `Group` column; confirm K-fold,
+      Monte Carlo, LOSO, and Kennard–Stone can pass while LOGO reports a clear Group requirement.
 - [ ] Complete one small validation run and open its saved result folder.
 - [ ] Confirm Run History can reopen a saved run and send a final model to Predict.
 - [ ] Run prediction-only mode once.
@@ -36,4 +38,4 @@ loses/corrupts saved work, or breaks the core Data -> Configuration -> Run -> Re
 workflow.
 
 The macOS distribution remains local-first and Python-based. It requires Python 3.10+ and
-first-launch internet access. A signed/notarized standalone macOS `.app` is not part of v0.2.0.
+first-launch internet access. A signed/notarized standalone macOS `.app` is not part of v0.2.1.
