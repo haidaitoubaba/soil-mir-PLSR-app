@@ -5,6 +5,7 @@ import pytest
 
 from soil_mir.services.history import (
     completed_run_keys,
+    list_saved_models,
     load_run_config,
     load_saved_result,
     load_saved_run,
@@ -266,3 +267,82 @@ def test_pending_run_keys_skip_completed_combinations():
         "202_STC::logo",
         "202_STN::kfold",
     }
+
+
+
+def test_saved_model_list_uses_existing_history_models(
+    tmp_path,
+    monkeypatch,
+):
+    newest_model = tmp_path / "new.joblib"
+    older_model = tmp_path / "old.joblib"
+    newest_model.write_bytes(b"model")
+    older_model.write_bytes(b"model")
+
+    monkeypatch.setattr(
+        "soil_mir.services.history.list_run_history",
+        lambda _root: [
+            {
+                "run_id": "newest",
+                "created_at": "2026-09-24T01:00:00+00:00",
+                "results": [
+                    {
+                        "property": "202_STC",
+                        "method": "kfold",
+                        "final_model": {
+                            "rank": 7,
+                        },
+                        "artifacts": {
+                            "model": str(
+                                newest_model
+                            ),
+                        },
+                    }
+                ],
+            },
+            {
+                "run_id": "older",
+                "created_at": "2026-09-23T01:00:00+00:00",
+                "results": [
+                    {
+                        "property": "202_STN",
+                        "method": "logo",
+                        "final_model": {
+                            "rank": 5,
+                        },
+                        "artifacts": {
+                            "model": str(
+                                older_model
+                            ),
+                        },
+                    },
+                    {
+                        "property": "missing",
+                        "method": "kfold",
+                        "artifacts": {
+                            "model": str(
+                                tmp_path
+                                / "missing.joblib"
+                            ),
+                        },
+                    },
+                ],
+            },
+        ],
+    )
+
+    models = list_saved_models(
+        tmp_path
+    )
+
+    assert [
+        item["path"]
+        for item in models
+    ] == [
+        str(newest_model),
+        str(older_model),
+    ]
+    assert (
+        models[0]["label"]
+        == "newest | 202_STC | kfold | rank 7"
+    )

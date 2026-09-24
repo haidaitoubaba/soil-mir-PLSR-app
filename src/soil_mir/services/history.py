@@ -5,6 +5,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from soil_mir.reporting import (
+    list_run_history,
+)
+
 
 REQUIRED_SHEETS = {
     "Summary",
@@ -298,3 +302,83 @@ def pending_run_keys(
         requested_run_keys(manifest)
         - completed_run_keys(manifest)
     )
+
+
+
+def list_saved_models(
+    output_base: str | Path,
+) -> list[dict]:
+    """Return usable final models from saved run history, newest first."""
+    if not output_base:
+        return []
+
+    models = []
+    for manifest in list_run_history(
+        output_base
+    ):
+        run_id = manifest.get(
+            "run_id",
+            "",
+        )
+        created_at = manifest.get(
+            "created_at",
+            "",
+        )
+        for record in manifest.get(
+            "results",
+            [],
+        ):
+            artifacts = record.get(
+                "artifacts",
+                {},
+            )
+            model_path = Path(
+                artifacts.get(
+                    "model",
+                    "",
+                )
+            )
+            if not model_path.is_file():
+                continue
+
+            property_name = str(
+                record.get(
+                    "property",
+                    "",
+                )
+            )
+            method = str(
+                record.get(
+                    "method",
+                    "",
+                )
+            )
+            final_model = record.get(
+                "final_model",
+                {},
+            )
+            rank = final_model.get(
+                "rank"
+            )
+            label = (
+                f"{run_id} | "
+                f"{property_name} | "
+                f"{method}"
+            )
+            if rank is not None:
+                label += f" | rank {rank}"
+
+            models.append(
+                {
+                    "label": label,
+                    "path": str(model_path),
+                    "run_id": run_id,
+                    "created_at": created_at,
+                    "property": (
+                        property_name
+                    ),
+                    "method": method,
+                    "rank": rank,
+                }
+            )
+    return models

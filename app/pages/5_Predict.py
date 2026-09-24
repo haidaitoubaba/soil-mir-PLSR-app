@@ -9,6 +9,9 @@ import streamlit as st
 from soil_mir.plotting import (
     measured_vs_predicted_figure,
 )
+from soil_mir.services.history import (
+    list_saved_models,
+)
 from soil_mir.services.local_paths import (
     choose_local_path,
     load_path_preferences,
@@ -42,22 +45,25 @@ def _safe_name(value: str) -> str:
 
 preferences = load_path_preferences()
 
-saved_models = []
-for result in st.session_state.get(
-    "soil_mir_results",
-    {},
-).values():
-    model = result.get(
-        "artifacts",
-        {},
-    ).get("model")
-    if model:
-        saved_models.append(model)
+model_history_root = st.session_state.get(
+    "soil_mir_output_dir",
+    preferences.get(
+        "output_dir",
+        "",
+    ),
+)
+historical_models = (
+    list_saved_models(
+        model_history_root
+    )
+    if model_history_root
+    else []
+)
 
 if "soil_mir_predict_model_input" not in st.session_state:
     st.session_state[
         "soil_mir_predict_model_input"
-    ] = saved_models[0] if saved_models else ""
+    ] = ""
 if "soil_mir_predict_spectra_input" not in st.session_state:
     st.session_state[
         "soil_mir_predict_spectra_input"
@@ -77,24 +83,42 @@ if "soil_mir_predict_output_input" not in st.session_state:
         preferences.get("output_dir", ""),
     )
 
-if saved_models:
-    recent = st.selectbox(
-        "Recent model",
-        [""] + saved_models,
+if historical_models:
+    model_options = {
+        item["label"]: item["path"]
+        for item in historical_models
+    }
+    selected_model_label = st.selectbox(
+        "Saved final model",
+        [""] + list(model_options),
         format_func=lambda value: (
-            "Choose a recent model"
+            "Choose a model from Run History"
             if not value
             else value
         ),
+        help=(
+            "Models are listed newest first from the current Results "
+            "directory. Selecting one does not modify the saved run."
+        ),
     )
-    if recent and st.button(
-        "Use selected recent model",
-        key="use_recent_model",
+    if (
+        selected_model_label
+        and st.button(
+            "Use selected saved model",
+            key="use_saved_history_model",
+        )
     ):
         st.session_state[
             "soil_mir_predict_model_input"
-        ] = recent
+        ] = model_options[
+            selected_model_label
+        ]
         st.rerun()
+else:
+    st.caption(
+        "No saved final models were found in the current Results directory. "
+        "You can still browse to any compatible .joblib model."
+    )
 
 model_col, model_browse_col = st.columns([5, 1])
 with model_browse_col:
