@@ -400,6 +400,96 @@ def list_saved_models(
                     ),
                     "method": method,
                     "rank": rank,
+                    "model_role": (
+                        "validated_final_model"
+                    ),
                 }
             )
-    return models
+
+        for record in manifest.get(
+            "final_refits",
+            [],
+        ):
+            artifacts = record.get(
+                "artifacts",
+                {},
+            )
+            model_path = Path(
+                artifacts.get(
+                    "model",
+                    "",
+                )
+            )
+            if not model_path.is_file():
+                continue
+
+            property_name = str(
+                record.get(
+                    "property",
+                    "",
+                )
+            )
+            method = str(
+                record.get(
+                    "method",
+                    "",
+                )
+            )
+            tolerance = record.get(
+                "refit_tolerance_pct"
+            )
+            final_model = record.get(
+                "final_model",
+                {},
+            )
+            rank = final_model.get(
+                "rank"
+            )
+            label = (
+                f"{run_id} | "
+                f"{property_name} | "
+                f"{method} | "
+                f"final-only refit "
+                f"{float(tolerance):g}%"
+            )
+            if rank is not None:
+                label += (
+                    f" | rank {rank}"
+                )
+
+            models.append(
+                {
+                    "label": label,
+                    "path": str(model_path),
+                    "run_id": run_id,
+                    "created_at": record.get(
+                        "created_at",
+                        created_at,
+                    ),
+                    "property": (
+                        property_name
+                    ),
+                    "method": method,
+                    "rank": rank,
+                    "model_role": (
+                        "final_only_refit"
+                    ),
+                    "refit_tolerance_pct": (
+                        float(tolerance)
+                    ),
+                    "source_validation_tolerance_pct": (
+                        record.get(
+                            "source_validation_tolerance_pct"
+                        )
+                    ),
+                }
+            )
+
+    return sorted(
+        models,
+        key=lambda item: item.get(
+            "created_at",
+            "",
+        ),
+        reverse=True,
+    )
