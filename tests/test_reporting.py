@@ -79,6 +79,7 @@ def _result():
         },
         "config": {
             "method": "kfold",
+            "rmsecv_tolerance_pct": 5.0,
             "_region_windows": [
                 {
                     "Window": "W01",
@@ -123,6 +124,19 @@ def test_export_validation_result(tmp_path: Path):
     assert "Summary" in workbook.sheet_names
     assert "Validation Predictions" in workbook.sheet_names
     assert "Final Model Selection" in workbook.sheet_names
+    assert "Tolerance Comparison" in workbook.sheet_names
+
+    tolerance = pd.read_excel(
+        artifacts["workbook"],
+        sheet_name="Tolerance Comparison",
+    )
+    assert tolerance["Tolerance (%)"].tolist() == list(
+        range(11)
+    )
+    current = tolerance[
+        tolerance["Used for Current Run"]
+    ]
+    assert current["Tolerance (%)"].tolist() == [5]
 
 
 def test_export_validation_comparison(tmp_path: Path):
