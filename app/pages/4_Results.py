@@ -17,6 +17,9 @@ from soil_mir.services.history import (
     load_run_config,
     run_config_session_values,
 )
+from soil_mir.services.local_paths import (
+    open_local_folder,
+)
 from soil_mir.services.profiles import (
     profile_widget_updates,
 )
@@ -50,6 +53,19 @@ if last_run:
     st.success(
         f"Saved locally: {last_run}"
     )
+    if st.button(
+        "Open results folder",
+        key="open_validation_results_folder",
+        type="secondary",
+    ):
+        try:
+            open_local_folder(
+                last_run
+            )
+        except Exception as exc:
+            st.error(
+                f"Could not open results folder: {exc}"
+            )
     comparison = st.session_state.get(
         "soil_mir_last_comparison"
     )

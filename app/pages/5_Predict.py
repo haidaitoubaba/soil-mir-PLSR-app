@@ -17,6 +17,7 @@ from soil_mir.services.history import (
 from soil_mir.services.local_paths import (
     choose_local_path,
     load_path_preferences,
+    open_local_folder,
 )
 from soil_mir.services.prediction import (
     predict_opus_directory,
@@ -462,6 +463,30 @@ result = st.session_state.get(
 if result:
     bundle = result["bundle"]
     st.success("Prediction complete.")
+
+    workbook_path = Path(
+        result.get(
+            "workbook_path",
+            "",
+        )
+    ).expanduser()
+    if (
+        workbook_path
+        and workbook_path.parent.is_dir()
+    ):
+        if st.button(
+            "Open results folder",
+            key="open_prediction_results_folder",
+            type="secondary",
+        ):
+            try:
+                open_local_folder(
+                    workbook_path.parent
+                )
+            except Exception as exc:
+                st.error(
+                    f"Could not open results folder: {exc}"
+                )
 
     st.subheader("Model")
     model_a, model_b, model_c, model_d = st.columns(4)

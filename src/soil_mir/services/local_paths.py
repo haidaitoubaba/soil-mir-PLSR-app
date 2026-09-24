@@ -214,3 +214,44 @@ def choose_local_path(
 
     selected = completed.stdout.strip()
     return Path(selected) if selected else None
+
+
+
+def open_local_folder(
+    path: str | Path,
+    *,
+    platform_name: str | None = None,
+) -> Path:
+    """Open a local directory in the platform file manager.
+
+    macOS is the supported desktop target for the current MVP.
+    """
+    folder = Path(path).expanduser()
+    if not folder.is_dir():
+        raise FileNotFoundError(
+            f"Results folder not found: {folder}"
+        )
+
+    platform_value = (
+        sys.platform
+        if platform_name is None
+        else platform_name
+    )
+    if platform_value != "darwin":
+        raise RuntimeError(
+            "Open results folder is currently available on macOS only. "
+            f"Folder: {folder}"
+        )
+
+    completed = subprocess.run(
+        ["open", str(folder)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "Could not open the folder in Finder: "
+            f"{completed.stderr.strip() or 'unknown error'}"
+        )
+    return folder

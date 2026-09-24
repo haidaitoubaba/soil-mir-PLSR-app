@@ -9,6 +9,7 @@ from soil_mir.services.local_paths import (
     choose_local_path,
     detect_local_data_layout,
     load_path_preferences,
+    open_local_folder,
     save_path_preferences,
 )
 
@@ -181,5 +182,71 @@ def test_native_picker_requires_macos():
         choose_local_path(
             "directory",
             prompt="Choose folder",
+            platform_name="linux",
+        )
+
+
+
+def test_open_local_folder_uses_macos_finder(
+    tmp_path,
+    monkeypatch,
+):
+    opened = []
+
+    def fake_run(
+        args,
+        capture_output,
+        text,
+        check,
+    ):
+        opened.append(args)
+        assert capture_output
+        assert text
+        assert check is False
+        return SimpleNamespace(
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        local_paths.subprocess,
+        "run",
+        fake_run,
+    )
+
+    result = open_local_folder(
+        tmp_path,
+        platform_name="darwin",
+    )
+
+    assert result == tmp_path
+    assert opened == [
+        ["open", str(tmp_path)]
+    ]
+
+
+def test_open_local_folder_rejects_missing_directory(
+    tmp_path,
+):
+    with pytest.raises(
+        FileNotFoundError,
+        match="Results folder not found",
+    ):
+        open_local_folder(
+            tmp_path / "missing",
+            platform_name="darwin",
+        )
+
+
+def test_open_local_folder_reports_non_macos_path(
+    tmp_path,
+):
+    with pytest.raises(
+        RuntimeError,
+        match="macOS only",
+    ):
+        open_local_folder(
+            tmp_path,
             platform_name="linux",
         )
