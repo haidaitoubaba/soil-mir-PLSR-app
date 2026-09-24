@@ -10,6 +10,8 @@ from pathlib import Path
 
 from soil_mir.plotting import (
     measured_vs_predicted_figure,
+    residual_distribution_figure,
+    residual_figure,
 )
 
 import joblib
@@ -128,27 +130,25 @@ def _export_validation_plots(
         pdf.savefig(fig)
         plt.close(fig)
 
-        fig, ax = plt.subplots(figsize=(7, 6))
-        ax.scatter(predicted, residual, alpha=0.7)
-        ax.axhline(0, linestyle="--")
-        ax.set_xlabel("Validation predicted")
-        ax.set_ylabel("Residual (measured - predicted)")
-        ax.set_title(f"{title} — residuals")
-        ax.grid(alpha=0.2)
-        fig.tight_layout()
+        fig = residual_figure(
+            predicted,
+            residual,
+            title=(
+                f"{title} — residuals"
+            ),
+            predicted_label=(
+                "Validation predicted"
+            ),
+        )
         pdf.savefig(fig)
         plt.close(fig)
 
-        fig, ax = plt.subplots(figsize=(7, 6))
-        ax.hist(
+        fig = residual_distribution_figure(
             residual,
-            bins=min(12, max(len(residual), 1)),
+            title=(
+                f"{title} — residual distribution"
+            ),
         )
-        ax.set_xlabel("Residual (measured - predicted)")
-        ax.set_ylabel("Validation predictions")
-        ax.set_title(f"{title} — residual distribution")
-        ax.grid(alpha=0.2)
-        fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
 

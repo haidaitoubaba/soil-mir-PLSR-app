@@ -7,6 +7,8 @@ import streamlit as st
 
 from soil_mir.plotting import (
     measured_vs_predicted_figure,
+    residual_distribution_figure,
+    residual_figure,
 )
 
 st.set_page_config(
@@ -183,10 +185,39 @@ for result in results.values():
             ["Predicted", "Residual"]
         ]
         st.subheader("Residuals")
-        st.scatter_chart(
-            residuals,
-            x="Predicted",
-            y="Residual",
+        residual_plot = residual_figure(
+            residuals["Predicted"],
+            residuals["Residual"],
+            title=(
+                f"{result['property']} — "
+                f"{result['method']} residuals"
+            ),
+            predicted_label=(
+                "Validation predicted"
+            ),
+        )
+        st.pyplot(
+            residual_plot,
+            clear_figure=True,
+            use_container_width=False,
+        )
+
+        st.subheader(
+            "Residual distribution"
+        )
+        residual_histogram = (
+            residual_distribution_figure(
+                residuals["Residual"],
+                title=(
+                    f"{result['property']} — "
+                    f"{result['method']} residual distribution"
+                ),
+            )
+        )
+        st.pyplot(
+            residual_histogram,
+            clear_figure=True,
+            use_container_width=False,
         )
 
         final_search = result["final_search"]

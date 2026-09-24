@@ -3,6 +3,8 @@ import pytest
 
 from soil_mir.plotting import (
     measured_vs_predicted_figure,
+    residual_distribution_figure,
+    residual_figure,
 )
 
 
@@ -58,3 +60,39 @@ def test_measured_vs_predicted_plot_rejects_invalid_data():
             [1.0, np.nan],
             [1.0, 2.0],
         )
+
+
+
+def test_residual_plot_has_zero_reference_line():
+    fig = residual_figure(
+        [1.0, 2.0, 3.0],
+        [0.2, -0.1, 0.0],
+    )
+    ax = fig.axes[0]
+
+    assert len(ax.collections) == 1
+    assert len(ax.lines) == 1
+    line = ax.lines[0]
+    np.testing.assert_allclose(
+        line.get_ydata(),
+        [0.0, 0.0],
+    )
+    assert (
+        line.get_label()
+        == "Zero residual"
+    )
+
+
+def test_residual_distribution_has_zero_reference_line():
+    fig = residual_distribution_figure(
+        [0.2, -0.1, 0.0, 0.3]
+    )
+    ax = fig.axes[0]
+
+    assert len(ax.patches) > 0
+    assert len(ax.lines) == 1
+    line = ax.lines[0]
+    np.testing.assert_allclose(
+        line.get_xdata(),
+        [0.0, 0.0],
+    )

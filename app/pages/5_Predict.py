@@ -8,6 +8,8 @@ import streamlit as st
 
 from soil_mir.plotting import (
     measured_vs_predicted_figure,
+    residual_distribution_figure,
+    residual_figure,
 )
 from soil_mir.services.history import (
     list_saved_models,
@@ -492,6 +494,47 @@ if result:
         )
         st.pyplot(
             prediction_plot,
+            clear_figure=True,
+            use_container_width=False,
+        )
+
+
+        external_residual = (
+            chart_frame["Measured"]
+            - chart_frame["Predicted"]
+        )
+        st.subheader(
+            "Residuals"
+        )
+        external_residual_plot = residual_figure(
+            chart_frame["Predicted"],
+            external_residual,
+            title=(
+                f"{bundle.get('property_name', '')} "
+                "— external validation residuals"
+            ),
+            predicted_label="Predicted",
+        )
+        st.pyplot(
+            external_residual_plot,
+            clear_figure=True,
+            use_container_width=False,
+        )
+
+        st.subheader(
+            "Residual distribution"
+        )
+        external_residual_histogram = (
+            residual_distribution_figure(
+                external_residual,
+                title=(
+                    f"{bundle.get('property_name', '')} "
+                    "— external validation residual distribution"
+                ),
+            )
+        )
+        st.pyplot(
+            external_residual_histogram,
             clear_figure=True,
             use_container_width=False,
         )

@@ -98,3 +98,123 @@ def measured_vs_predicted_figure(
     ax.legend()
     fig.tight_layout()
     return fig
+
+
+
+def residual_figure(
+    predicted,
+    residual,
+    *,
+    title: str | None = None,
+    predicted_label: str = "Predicted",
+):
+    """Create residual-vs-predicted diagnostics with a zero reference line."""
+    import matplotlib.pyplot as plt
+
+    predicted = np.asarray(
+        predicted,
+        dtype=float,
+    ).ravel()
+    residual = np.asarray(
+        residual,
+        dtype=float,
+    ).ravel()
+    if predicted.shape != residual.shape:
+        raise ValueError(
+            "Predicted and residual values must have the same shape."
+        )
+    if predicted.size == 0:
+        raise ValueError(
+            "Predicted and residual values must not be empty."
+        )
+    if (
+        not np.isfinite(predicted).all()
+        or not np.isfinite(residual).all()
+    ):
+        raise ValueError(
+            "Predicted and residual values must be finite."
+        )
+
+    fig, ax = plt.subplots(
+        figsize=(7, 6),
+    )
+    ax.scatter(
+        predicted,
+        residual,
+        alpha=0.7,
+    )
+    ax.axhline(
+        0,
+        linestyle="--",
+        label="Zero residual",
+    )
+    ax.set_xlabel(
+        predicted_label
+    )
+    ax.set_ylabel(
+        "Residual (measured - predicted)"
+    )
+    if title:
+        ax.set_title(title)
+    ax.grid(
+        alpha=0.2,
+    )
+    ax.legend()
+    fig.tight_layout()
+    return fig
+
+
+def residual_distribution_figure(
+    residual,
+    *,
+    title: str | None = None,
+):
+    """Create a residual histogram using the same residual sign convention."""
+    import matplotlib.pyplot as plt
+
+    residual = np.asarray(
+        residual,
+        dtype=float,
+    ).ravel()
+    if residual.size == 0:
+        raise ValueError(
+            "Residual values must not be empty."
+        )
+    if not np.isfinite(
+        residual
+    ).all():
+        raise ValueError(
+            "Residual values must be finite."
+        )
+
+    fig, ax = plt.subplots(
+        figsize=(7, 6),
+    )
+    bins = min(
+        12,
+        max(
+            int(residual.size),
+            1,
+        ),
+    )
+    ax.hist(
+        residual,
+        bins=bins,
+    )
+    ax.axvline(
+        0,
+        linestyle="--",
+        label="Zero residual",
+    )
+    ax.set_xlabel(
+        "Residual (measured - predicted)"
+    )
+    ax.set_ylabel("Count")
+    if title:
+        ax.set_title(title)
+    ax.grid(
+        alpha=0.2,
+    )
+    ax.legend()
+    fig.tight_layout()
+    return fig
