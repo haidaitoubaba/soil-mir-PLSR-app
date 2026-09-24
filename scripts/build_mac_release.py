@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import gzip
+import io
 import re
 import sys
+import tarfile
 import tomllib
-import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +28,6 @@ INCLUDE_ENTRIES = (
     ROOT / "README.md",
     ROOT / "RELEASE_CHECKLIST.md",
 )
-FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
 
 
 def project_version() -> str:
@@ -72,14 +73,6 @@ def iter_release_files() -> list[Path]:
     return sorted(set(files))
 
 
-def zip_info(name: str, mode: int) -> zipfile.ZipInfo:
-    info = zipfile.ZipInfo(name, date_time=FIXED_ZIP_TIME)
-    info.compress_type = zipfile.ZIP_DEFLATED
-    info.create_system = 3
-    info.external_attr = (mode & 0xFFFF) << 16
-    return info
-
-
 def safe_label(value: str) -> str:
     label = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")
     if not label:
@@ -87,12 +80,28 @@ def safe_label(value: str) -> str:
     return label
 
 
+def tar_info(name: str, mode: int, size: int) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(name)
+    info.size = size
+    info.mode = mode
+    info.mtime = 0
+    info.uid = 0
+    info.gid = 0
+    info.uname = ""
+    info.gname = ""
+    return info
+
+
+def add_bytes(handle: tarfile.TarFile, name: str, content: bytes, mode: int) -> None:
+    handle.addfile(tar_info(name, mode, len(content)), io.BytesIO(content))
+
+
 def build_bundle(output_dir: Path, label: str, commit: str) -> Path:
     version = validate_release_inputs()
     label = safe_label(label)
     commit = safe_label(commit) if commit else "unknown"
     bundle_root = f"soil-mir-app-v{version}-{label}"
-    archive = output_dir / f"{bundle_root}-mac.zip"
+    archive = output_dir / f"{bundle_root}-mac.tar.gz"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     release_readme = f"""Soil MIR PLSR v{version} - macOS release candidate
@@ -107,8 +116,8 @@ Requirements
 
 Start
 -----
-1. Extract this ZIP to a normal writable folder.
-2. Double-click run_app.command.
+1. Double-click the .tar.gz archive to extract it to a normal writable folder.
+2. Open the extracted folder and double-click run_app.command.
 3. Keep the Terminal window open while using Soil MIR.
 4. The first launch creates a private .venv beside the app and installs dependencies.
 5. Later launches reuse that environment unless pyproject.toml changes.
@@ -123,29 +132,39 @@ For release validation, see RELEASE_CHECKLIST.md.
 
     build_info = f"version={version}\nlabel={label}\ncommit={commit}\n"
 
-    with zipfile.ZipFile(archive, "w") as handle:
-        for path in iter_release_files():
-            relative = path.relative_to(ROOT).as_posix()
-            mode = 0o755 if relative == "run_app.command" else 0o644
-            info = zip_info(f"{bundle_root}/{relative}", mode)
-            handle.writestr(info, path.read_bytes())
+    with archive.open("wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w") as handle:
+                for path in iter_release_files():
+                    relative = path.relative_to(ROOT).as_posix()
+                    mode = 0o755 if relative == "run_app.command" else 0o644
+                    add_bytes(
+                        handle,
+                        f"{bundle_root}/{relative}",
+                        path.read_bytes(),
+                        mode,
+                    )
 
-        handle.writestr(
-            zip_info(f"{bundle_root}/MAC_RELEASE_README.txt", 0o644),
-            release_readme.encode("utf-8"),
-        )
-        handle.writestr(
-            zip_info(f"{bundle_root}/BUILD_INFO.txt", 0o644),
-            build_info.encode("utf-8"),
-        )
+                add_bytes(
+                    handle,
+                    f"{bundle_root}/MAC_RELEASE_README.txt",
+                    release_readme.encode("utf-8"),
+                    0o644,
+                )
+                add_bytes(
+                    handle,
+                    f"{bundle_root}/BUILD_INFO.txt",
+                    build_info.encode("utf-8"),
+                    0o644,
+                )
 
     verify_bundle(archive, bundle_root)
     return archive
 
 
 def verify_bundle(archive: Path, bundle_root: str) -> None:
-    with zipfile.ZipFile(archive) as handle:
-        names = set(handle.namelist())
+    with tarfile.open(archive, "r:gz") as handle:
+        members = {member.name: member for member in handle.getmembers()}
         required = {
             f"{bundle_root}/app/Home.py",
             f"{bundle_root}/pyproject.toml",
@@ -154,7 +173,7 @@ def verify_bundle(archive: Path, bundle_root: str) -> None:
             f"{bundle_root}/MAC_RELEASE_README.txt",
             f"{bundle_root}/BUILD_INFO.txt",
         }
-        missing = sorted(required - names)
+        missing = sorted(required - members.keys())
         if missing:
             raise RuntimeError(f"Release bundle is missing: {', '.join(missing)}")
 
@@ -163,17 +182,16 @@ def verify_bundle(archive: Path, bundle_root: str) -> None:
             f"{bundle_root}/.git/",
             f"{bundle_root}/.venv/",
         )
-        if any(name.startswith(forbidden_prefixes) for name in names):
+        if any(name.startswith(forbidden_prefixes) for name in members):
             raise RuntimeError("Release bundle contains development-only content")
 
-        if f"{bundle_root}/.gitlab-ci.yml" in names:
+        if f"{bundle_root}/.gitlab-ci.yml" in members:
             raise RuntimeError("Release bundle contains .gitlab-ci.yml")
 
-        launcher = handle.getinfo(f"{bundle_root}/run_app.command")
-        launcher_mode = (launcher.external_attr >> 16) & 0o777
-        if launcher_mode != 0o755:
+        launcher = members[f"{bundle_root}/run_app.command"]
+        if launcher.mode != 0o755:
             raise RuntimeError(
-                f"run_app.command must be executable in the ZIP; found mode {oct(launcher_mode)}"
+                f"run_app.command must be executable in the tarball; found mode {oct(launcher.mode)}"
             )
 
 

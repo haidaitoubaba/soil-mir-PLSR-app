@@ -9,15 +9,15 @@ This checklist freezes the current macOS MVP. Do not add product features while 
 - [ ] GitLab `lint` passes.
 - [ ] GitLab `pytest` passes, including scientific regression tests.
 - [ ] GitLab `streamlit_smoke` passes.
-- [ ] GitLab `mac_rc_bundle` produces one `dist/*.zip` artifact.
-- [ ] The ZIP excludes tests, Git metadata, CI configuration, local environments, and research data.
-- [ ] `run_app.command` is stored as executable inside the ZIP.
+- [ ] GitLab `mac_rc_bundle` produces one `dist/*.tar.gz` artifact.
+- [ ] The tar.gz archive excludes tests, Git metadata, CI configuration, local environments, and research data.
+- [ ] `run_app.command` is stored as executable inside the tar.gz archive.
 
 ## Clean-Mac manual gate
 
-Run these checks from the ZIP artifact, not from the development checkout.
+Run these checks from the tar.gz archive artifact, not from the development checkout.
 
-- [ ] Extract the ZIP into a folder whose path contains spaces.
+- [ ] Extract the tar.gz archive into a folder whose path contains spaces.
 - [ ] Confirm a Mac without Python receives the explicit Python 3.10+ requirement message.
 - [ ] With Python 3.10+ installed, double-click `run_app.command`.
 - [ ] Confirm first launch creates `.venv`, installs dependencies, and opens Streamlit.
