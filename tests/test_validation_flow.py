@@ -4,6 +4,10 @@ import numpy as np
 import pytest
 
 from soil_mir.regions import prepare_region_config
+from soil_mir.services.calibration import (
+    CalibrationDataset,
+    refit_final_model_only,
+)
 from soil_mir.validation import (
     RunCancelled,
     outer_splits,
@@ -490,3 +494,65 @@ def test_kennard_stone_end_to_end_has_single_fixed_holdout():
         result["summary"]["Scope"]
         == "One spectrally selected holdout"
     ).all()
+
+
+
+def test_final_only_refit_changes_tolerance_without_outer_validation():
+    X, y, keys, labels, axis = _dataset(
+        groups=4
+    )
+    dataset = CalibrationDataset(
+        X=X,
+        y=y,
+        sample_ids=keys,
+        group_labels=labels,
+        wavenumbers=axis,
+        property_name="synthetic_STC",
+        units="g C/kg soil",
+        transform="sqrt",
+        exclude_co2=False,
+        rows=len(X),
+        unique_samples=len(
+            np.unique(keys)
+        ),
+    )
+
+    refit = refit_final_model_only(
+        dataset,
+        method="monte_carlo",
+        max_rank=1,
+        region_search_n_windows=1,
+        rmsecv_tolerance_pct=4.0,
+        sg_window=7,
+        sg_polyorder=2,
+        random_seed=42,
+        internal_cv_folds=2,
+        outer_cv_folds=2,
+        n_repeats=2,
+        validation_fraction=0.50,
+        ks_representation="raw",
+        ks_pca_variance=0.99,
+        wn_min=600.0,
+        wn_max=4000.0,
+        outer_n_jobs=1,
+        inner_thread_limit=1,
+    )
+
+    assert refit[
+        "refit_tolerance_pct"
+    ] == 4.0
+    assert refit[
+        "outer_validation_rerun"
+    ] is False
+    assert refit[
+        "config"
+    ]["rmsecv_tolerance_pct"] == 4.0
+    assert refit[
+        "final_model"
+    ]["artifact_role"] == "final_only_refit"
+    assert refit[
+        "final_model"
+    ]["outer_validation_rerun"] is False
+    assert not refit[
+        "final_search"
+    ].empty

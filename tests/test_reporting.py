@@ -5,8 +5,12 @@ import pandas as pd
 
 from soil_mir.reporting import (
     create_run_directory,
+    export_final_refit,
     export_validation_comparison,
     export_validation_result,
+    initialize_run_manifest,
+    read_run_manifest,
+    record_final_refit,
     safe_name,
 )
 
@@ -156,3 +160,128 @@ def test_export_validation_comparison(tmp_path: Path):
     assert frame.loc[0, "Property"] == "202_STC"
     assert frame.loc[0, "Method"] == "kfold"
     assert frame.loc[0, "R2"] == 0.8
+
+
+
+def _final_refit():
+    return {
+        "property": "202_STC",
+        "method": "monte_carlo",
+        "refit_tolerance_pct": 4.0,
+        "final_model": {
+            "property_name": "202_STC",
+            "units": "g C/kg soil",
+            "training_sample_count": 12,
+            "training_spectrum_count": 24,
+        },
+        "final_settings": {
+            "Region": "W01",
+            "Regions (cm-1)": "600-1200",
+            "Spectral Points": 100,
+            "Preprocessing": "1st Derivative",
+            "Rank": 3,
+            "RMSECV": 0.52,
+        },
+        "final_search": pd.DataFrame(
+            [
+                {
+                    "Region": "W01",
+                    "Regions (cm-1)": "600-1200",
+                    "Spectral Points": 100,
+                    "Preprocessing": "1st Derivative",
+                    "Rank": 5,
+                    "RMSECV": 0.50,
+                    "Status": "Success",
+                },
+                {
+                    "Region": "W01",
+                    "Regions (cm-1)": "600-1200",
+                    "Spectral Points": 100,
+                    "Preprocessing": "1st Derivative",
+                    "Rank": 3,
+                    "RMSECV": 0.52,
+                    "Status": "Success",
+                },
+            ]
+        ),
+        "config": {
+            "method": "monte_carlo",
+            "rmsecv_tolerance_pct": 4.0,
+        },
+    }
+
+
+def test_export_and_record_final_refit_do_not_replace_validation_result(
+    tmp_path: Path,
+):
+    run_dir = create_run_directory(
+        tmp_path
+    )
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC"],
+        methods=["monte_carlo"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+
+    refit = _final_refit()
+    artifacts = export_final_refit(
+        refit,
+        run_dir,
+        source_validation_tolerance_pct=5.0,
+    )
+    record_final_refit(
+        run_dir,
+        refit,
+        artifacts,
+        source_validation_tolerance_pct=5.0,
+    )
+
+    assert Path(
+        artifacts["model"]
+    ).is_file()
+    assert Path(
+        artifacts["workbook"]
+    ).is_file()
+    workbook = pd.ExcelFile(
+        artifacts["workbook"]
+    )
+    assert "Tolerance Comparison" in workbook.sheet_names
+    assert "Final Model Selection" in workbook.sheet_names
+
+    model = joblib.load(
+        artifacts["model"]
+    )
+    assert model[
+        "artifact_role"
+    ] == "final_only_refit"
+    assert model[
+        "outer_validation_rerun"
+    ] is False
+    assert model[
+        "source_validation_tolerance_pct"
+    ] == 5.0
+    assert model[
+        "refit_tolerance_pct"
+    ] == 4.0
+
+    manifest = read_run_manifest(
+        run_dir
+    )
+    assert manifest["results"] == []
+    assert len(
+        manifest["final_refits"]
+    ) == 1
+    saved = manifest[
+        "final_refits"
+    ][0]
+    assert saved[
+        "refit_tolerance_pct"
+    ] == 4.0
+    assert saved[
+        "source_validation_tolerance_pct"
+    ] == 5.0
+    assert saved[
+        "outer_validation_rerun"
+    ] is False

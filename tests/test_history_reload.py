@@ -346,3 +346,80 @@ def test_saved_model_list_uses_existing_history_models(
         models[0]["label"]
         == "newest | 202_STC | kfold | rank 7"
     )
+
+
+
+def test_saved_model_list_includes_final_only_refits(
+    tmp_path,
+    monkeypatch,
+):
+    validated_model = (
+        tmp_path / "validated.joblib"
+    )
+    refit_model = (
+        tmp_path / "refit.joblib"
+    )
+    validated_model.write_bytes(
+        b"model"
+    )
+    refit_model.write_bytes(
+        b"model"
+    )
+
+    monkeypatch.setattr(
+        "soil_mir.services.history.list_run_history",
+        lambda _root: [
+            {
+                "run_id": "run-1",
+                "created_at": "2026-09-24T10:00:00+00:00",
+                "results": [
+                    {
+                        "property": "202_STC",
+                        "method": "monte_carlo",
+                        "final_model": {
+                            "rank": 5,
+                        },
+                        "artifacts": {
+                            "model": str(
+                                validated_model
+                            ),
+                        },
+                    }
+                ],
+                "final_refits": [
+                    {
+                        "property": "202_STC",
+                        "method": "monte_carlo",
+                        "created_at": "2026-09-24T11:00:00+00:00",
+                        "refit_tolerance_pct": 4.0,
+                        "source_validation_tolerance_pct": 5.0,
+                        "outer_validation_rerun": False,
+                        "final_model": {
+                            "rank": 3,
+                        },
+                        "artifacts": {
+                            "model": str(
+                                refit_model
+                            ),
+                        },
+                    }
+                ],
+            }
+        ],
+    )
+
+    models = list_saved_models(
+        tmp_path
+    )
+
+    assert len(models) == 2
+    assert models[0][
+        "model_role"
+    ] == "final_only_refit"
+    assert models[0][
+        "refit_tolerance_pct"
+    ] == 4.0
+    assert "final-only refit 4%" in models[0]["label"]
+    assert models[1][
+        "model_role"
+    ] == "validated_final_model"
