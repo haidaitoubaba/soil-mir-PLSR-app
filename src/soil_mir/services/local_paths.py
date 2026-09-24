@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -92,3 +95,122 @@ def detect_local_data_layout(
             return layout
 
     return None
+
+
+def path_preferences_file(
+    *,
+    home: str | Path | None = None,
+) -> Path:
+    home_path = Path.home() if home is None else Path(home)
+    return home_path / ".soil_mir_app" / "paths.json"
+
+
+def load_path_preferences(
+    *,
+    home: str | Path | None = None,
+) -> dict[str, str]:
+    path = path_preferences_file(home=home)
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+
+    allowed = (
+        "spectra_dir",
+        "reference_excel",
+        "output_dir",
+    )
+    return {
+        key: str(payload[key])
+        for key in allowed
+        if isinstance(payload.get(key), str)
+        and payload[key].strip()
+    }
+
+
+def save_path_preferences(
+    spectra_dir: str | Path,
+    reference_excel: str | Path,
+    output_dir: str | Path,
+    *,
+    home: str | Path | None = None,
+) -> Path:
+    path = path_preferences_file(home=home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "spectra_dir": str(Path(spectra_dir).expanduser()),
+        "reference_excel": str(
+            Path(reference_excel).expanduser()
+        ),
+        "output_dir": str(Path(output_dir).expanduser()),
+    }
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+    return path
+
+
+def _applescript_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def choose_local_path(
+    kind: str,
+    *,
+    prompt: str,
+    platform_name: str | None = None,
+) -> Path | None:
+    """Open a native local file/folder chooser on macOS.
+
+    Manual path entry remains available in the Streamlit UI, so unsupported
+    platforms are never required to use this helper.
+    """
+    platform_value = (
+        sys.platform
+        if platform_name is None
+        else platform_name
+    )
+    if platform_value != "darwin":
+        raise RuntimeError(
+            "Native path browsing is currently available on macOS only. "
+            "Enter the path manually on this platform."
+        )
+
+    safe_prompt = _applescript_string(prompt)
+    if kind == "directory":
+        chooser = (
+            f'choose folder with prompt "{safe_prompt}"'
+        )
+    elif kind == "file":
+        chooser = (
+            f'choose file with prompt "{safe_prompt}"'
+        )
+    else:
+        raise ValueError(
+            "kind must be 'directory' or 'file'."
+        )
+
+    script = f"POSIX path of ({chooser})"
+    completed = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        if "User canceled" in completed.stderr:
+            return None
+        raise RuntimeError(
+            "macOS path chooser failed: "
+            f"{completed.stderr.strip() or 'unknown error'}"
+        )
+
+    selected = completed.stdout.strip()
+    return Path(selected) if selected else None

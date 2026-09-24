@@ -7,7 +7,7 @@ run history, and prediction.
 
 The app now provides:
 
-1. **Data** — choose a local Bruker OPUS directory, reference workbook, and results directory.
+1. **Data** — choose any local Bruker OPUS directory, reference workbook, and results directory. On macOS, native Finder buttons are available; successful selections are remembered as the last-used paths. Auto-detected legacy layouts are suggestions only and are never selected automatically.
 2. **Configuration** — select properties and validation/model-search settings.
 3. **Run** — execute nested validation and a separate all-data final model refit.
 4. **Results** — review outer-validation metrics, predictions, model selection, and saved artifacts.

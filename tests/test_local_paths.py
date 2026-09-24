@@ -1,7 +1,15 @@
 from pathlib import Path
 
+from types import SimpleNamespace
+
+import pytest
+
+from soil_mir.services import local_paths
 from soil_mir.services.local_paths import (
+    choose_local_path,
     detect_local_data_layout,
+    load_path_preferences,
+    save_path_preferences,
 )
 
 
@@ -71,3 +79,107 @@ def test_returns_none_when_layout_is_missing(tmp_path):
         environ={},
     )
     assert layout is None
+
+
+def test_path_preferences_round_trip(tmp_path):
+    saved = save_path_preferences(
+        tmp_path / "spectra",
+        tmp_path / "reference.xlsx",
+        tmp_path / "results",
+        home=tmp_path / "home",
+    )
+
+    assert saved.is_file()
+    assert load_path_preferences(
+        home=tmp_path / "home"
+    ) == {
+        "spectra_dir": str(tmp_path / "spectra"),
+        "reference_excel": str(
+            tmp_path / "reference.xlsx"
+        ),
+        "output_dir": str(tmp_path / "results"),
+    }
+
+
+def test_invalid_path_preferences_are_ignored(tmp_path):
+    path = (
+        tmp_path
+        / "home"
+        / ".soil_mir_app"
+        / "paths.json"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text("{not-json", encoding="utf-8")
+
+    assert load_path_preferences(
+        home=tmp_path / "home"
+    ) == {}
+
+
+def test_macos_native_picker_returns_selected_path(
+    monkeypatch,
+):
+    def fake_run(
+        args,
+        capture_output,
+        text,
+        check,
+    ):
+        assert args[0] == "osascript"
+        assert "choose folder" in args[-1]
+        assert capture_output
+        assert text
+        assert check is False
+        return SimpleNamespace(
+            returncode=0,
+            stdout="/tmp/soil spectra/\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        local_paths.subprocess,
+        "run",
+        fake_run,
+    )
+
+    selected = choose_local_path(
+        "directory",
+        prompt="Choose spectra",
+        platform_name="darwin",
+    )
+
+    assert selected == Path("/tmp/soil spectra")
+
+
+def test_macos_native_picker_cancel_returns_none(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        local_paths.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="execution error: User canceled. (-128)",
+        ),
+    )
+
+    selected = choose_local_path(
+        "file",
+        prompt="Choose workbook",
+        platform_name="darwin",
+    )
+
+    assert selected is None
+
+
+def test_native_picker_requires_macos():
+    with pytest.raises(
+        RuntimeError,
+        match="macOS only",
+    ):
+        choose_local_path(
+            "directory",
+            prompt="Choose folder",
+            platform_name="linux",
+        )

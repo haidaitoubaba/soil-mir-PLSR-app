@@ -18,7 +18,10 @@ from soil_mir.services.acceptance import (
     run_data_acceptance,
 )
 from soil_mir.services.local_paths import (
+    choose_local_path,
     detect_local_data_layout,
+    load_path_preferences,
+    save_path_preferences,
 )
 
 st.set_page_config(
@@ -31,65 +34,149 @@ st.caption(
     "Inspect local spectra and reference data before modelling."
 )
 
-detected_layout = None
-if not (
-    st.session_state.get("soil_mir_spectra_dir")
-    or st.session_state.get("soil_mir_reference_excel")
-):
-    detected_layout = detect_local_data_layout()
+preferences = load_path_preferences()
 
-default_spectra = st.session_state.get(
-    "soil_mir_spectra_dir",
-    "",
-)
-default_reference = st.session_state.get(
-    "soil_mir_reference_excel",
-    "",
-)
-default_output = st.session_state.get(
-    "soil_mir_output_dir",
-    "",
-)
+initial_paths = {
+    "soil_mir_spectra_input": st.session_state.get(
+        "soil_mir_spectra_dir",
+        preferences.get("spectra_dir", ""),
+    ),
+    "soil_mir_reference_input": st.session_state.get(
+        "soil_mir_reference_excel",
+        preferences.get("reference_excel", ""),
+    ),
+    "soil_mir_output_input": st.session_state.get(
+        "soil_mir_output_dir",
+        preferences.get("output_dir", ""),
+    ),
+}
+for key, value in initial_paths.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
+detected_layout = detect_local_data_layout()
 if detected_layout is not None:
-    default_spectra = default_spectra or str(
-        detected_layout.spectra_dir
-    )
-    default_reference = default_reference or str(
-        detected_layout.reference_excel
-    )
-    default_output = default_output or str(
-        detected_layout.output_dir
-    )
-    st.success(
-        "Detected local Soil MIR data layout from "
-        f"{detected_layout.source}."
+    with st.expander(
+        "Detected local dataset (optional)",
+        expanded=False,
+    ):
+        st.write(
+            "A possible Soil MIR data layout was detected from "
+            f"**{detected_layout.source}**. "
+            "Nothing is selected automatically."
+        )
+        st.code(
+            "\n".join(
+                [
+                    f"Spectra: {detected_layout.spectra_dir}",
+                    f"Reference: {detected_layout.reference_excel}",
+                    f"Results: {detected_layout.output_dir}",
+                ]
+            )
+        )
+        if st.button(
+            "Use detected data layout",
+            key="use_detected_layout",
+        ):
+            st.session_state[
+                "soil_mir_spectra_input"
+            ] = str(detected_layout.spectra_dir)
+            st.session_state[
+                "soil_mir_reference_input"
+            ] = str(detected_layout.reference_excel)
+            st.session_state[
+                "soil_mir_output_input"
+            ] = str(detected_layout.output_dir)
+            st.rerun()
+
+st.caption(
+    "Choose any local folders/files below. On macOS, the Browse buttons "
+    "open the native Finder picker; paths can also be typed or pasted."
+)
+
+spectra_path_col, spectra_choose_col = st.columns(
+    [5, 1]
+)
+with spectra_choose_col:
+    if st.button(
+        "Browse…",
+        key="browse_spectra",
+        use_container_width=True,
+    ):
+        try:
+            selected = choose_local_path(
+                "directory",
+                prompt="Choose OPUS spectra folder",
+            )
+        except Exception as exc:
+            st.error(str(exc))
+        else:
+            if selected is not None:
+                st.session_state[
+                    "soil_mir_spectra_input"
+                ] = str(selected)
+with spectra_path_col:
+    spectra_text = st.text_input(
+        "OPUS spectra directory",
+        key="soil_mir_spectra_input",
+        placeholder="/path/to/data/spectra/Complete",
     )
 
-spectra_text = st.text_input(
-    "OPUS spectra directory",
-    value=default_spectra,
-    placeholder="/path/to/data/spectra/Complete",
+reference_path_col, reference_choose_col = st.columns(
+    [5, 1]
 )
-reference_text = st.text_input(
-    "Reference workbook",
-    value=default_reference,
-    placeholder="/path/to/reference_value.xlsx",
-)
-
-if not default_output and reference_text:
-    default_output = str(
-        Path(reference_text)
-        .expanduser()
-        .parent
-        / "soil_mir_results"
+with reference_choose_col:
+    if st.button(
+        "Browse…",
+        key="browse_reference",
+        use_container_width=True,
+    ):
+        try:
+            selected = choose_local_path(
+                "file",
+                prompt="Choose reference Excel workbook",
+            )
+        except Exception as exc:
+            st.error(str(exc))
+        else:
+            if selected is not None:
+                st.session_state[
+                    "soil_mir_reference_input"
+                ] = str(selected)
+with reference_path_col:
+    reference_text = st.text_input(
+        "Reference workbook",
+        key="soil_mir_reference_input",
+        placeholder="/path/to/reference_value.xlsx",
     )
 
-output_text = st.text_input(
-    "Results directory",
-    value=default_output,
-    placeholder="/path/to/soil_mir_results",
+output_path_col, output_choose_col = st.columns(
+    [5, 1]
 )
+with output_choose_col:
+    if st.button(
+        "Browse…",
+        key="browse_output",
+        use_container_width=True,
+    ):
+        try:
+            selected = choose_local_path(
+                "directory",
+                prompt="Choose results folder",
+            )
+        except Exception as exc:
+            st.error(str(exc))
+        else:
+            if selected is not None:
+                st.session_state[
+                    "soil_mir_output_input"
+                ] = str(selected)
+with output_path_col:
+    output_text = st.text_input(
+        "Results directory",
+        key="soil_mir_output_input",
+        placeholder="/path/to/soil_mir_results",
+    )
 
 if st.button(
     "Inspect data",
@@ -156,6 +243,17 @@ if st.button(
             "total_bytes": spectra.total_bytes,
             "filenames": spectra.filenames,
         }
+        try:
+            save_path_preferences(
+                spectra_path,
+                reference_path,
+                output_path,
+            )
+        except OSError as exc:
+            st.warning(
+                "Data inspection succeeded, but the last-used paths "
+                f"could not be saved: {exc}"
+            )
 
 properties = st.session_state.get(
     "soil_mir_properties",
