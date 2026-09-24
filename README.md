@@ -71,32 +71,21 @@ All repository builds, dependency installation for development, linting, scienti
 startup smoke tests are automated in GitLab CI.
 
 
-## macOS release candidate
+## v0.2.0 cross-platform release candidate
 
-The repository version is `0.1.0`. GitLab CI now builds a deterministic macOS RC tar.gz archive after the
-validation and quality gates pass. The tar.gz artifact contains the application source, `pyproject.toml`,
-the executable `run_app.command` launcher, release instructions, and build metadata; development
-tests, CI files, local environments, and research data are excluded.
+The repository version is `0.2.0`. GitLab CI builds deterministic release artifacts for both
+supported desktop platforms after the validation and quality gates pass:
 
-This RC remains a local-first Python distribution: the target Mac needs Python 3.10+ and internet
-access on first launch for dependency installation. It is not yet a signed/notarized standalone
-`.app`.
+- macOS: `soil-mir-app-v0.2.0-<label>-mac.tar.gz`
+- Windows: `soil-mir-app-v0.2.0-<label>-windows.zip`
 
-Before promoting an RC to the final v0.1.0 release, complete `RELEASE_CHECKLIST.md` using the CI
-ZIP artifact on a clean or representative Mac.
+Both distributions contain the same application and scientific engine. The platform wrappers only
+handle local Python discovery, virtual-environment startup, native path dialogs, browser launch, and
+opening result folders.
 
+The distributions remain local-first Python packages. Target computers need Python 3.10+ and
+internet access on first launch for dependency installation. The macOS package is not a
+signed/notarized standalone `.app`, and the Windows package is not a standalone installer.
 
-## Windows MVP release candidate
-
-GitLab CI builds a deterministic Windows ZIP artifact alongside the macOS package. The Windows bundle
-contains the application source, the shared launcher core, `run_app.bat`, `run_app.ps1`, build
-metadata, and Windows validation instructions. Development tests, CI files, virtual environments, and
-research data are excluded.
-
-The Windows MVP remains a local-first Python distribution. The target machine needs Python 3.10+ and
-internet access on first launch. The recommended user entry point is `run_app.bat`; no standalone
-installer is included yet.
-
-The current GitLab runners are Linux-based, so CI can test the shared launcher logic and inspect the
-Windows package but cannot execute Windows `cmd.exe` itself. Complete
-`WINDOWS_RELEASE_CHECKLIST.md` on a representative Windows machine before promoting a Windows RC.
+Before tagging `v0.2.0`, complete the relevant checks in `RELEASE_CHECKLIST.md` and
+`WINDOWS_RELEASE_CHECKLIST.md` using generated CI artifacts.
