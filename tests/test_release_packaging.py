@@ -55,3 +55,37 @@ def test_mac_release_bundle_preserves_launcher_permission_after_extract(tmp_path
     launcher = extract_dir / bundle_root / "run_app.command"
     assert launcher.exists()
     assert stat.S_IMODE(launcher.stat().st_mode) == 0o755
+
+
+def test_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> None:
+    output_dir = tmp_path / "dist"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/build_mac_release.py",
+            "--output-dir",
+            str(output_dir),
+            "--label",
+            "v0.1.0",
+            "--commit",
+            "cafebabe",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    archive = Path(completed.stdout.strip())
+    assert archive.name == "soil-mir-app-v0.1.0-mac.tar.gz"
+
+    with tarfile.open(archive, "r:gz") as handle:
+        roots = {name.split("/", 1)[0] for name in handle.getnames()}
+        assert roots == {"soil-mir-app-v0.1.0"}
+        readme = handle.extractfile(
+            "soil-mir-app-v0.1.0/MAC_RELEASE_README.txt"
+        )
+        assert readme is not None
+        text = readme.read().decode("utf-8")
+        assert "macOS release\n" in text
+        assert "macOS release candidate" not in text
