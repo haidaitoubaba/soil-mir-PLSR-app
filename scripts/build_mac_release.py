@@ -191,7 +191,8 @@ def verify_bundle(archive: Path, bundle_root: str) -> None:
         launcher = members[f"{bundle_root}/run_app.command"]
         if launcher.mode != 0o755:
             raise RuntimeError(
-                f"run_app.command must be executable in the tarball; found mode {oct(launcher.mode)}"
+                "run_app.command must be executable in the tarball; "
+                f"found mode {oct(launcher.mode)}"
             )
 
 
