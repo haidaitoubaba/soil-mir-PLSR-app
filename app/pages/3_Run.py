@@ -129,6 +129,18 @@ def analysis_settings() -> dict:
                 "soil_mir_wn_range"
             ][1]
         ),
+        "outer_n_jobs": int(
+            st.session_state.get(
+                "soil_mir_outer_n_jobs",
+                4,
+            )
+        ),
+        "inner_thread_limit": int(
+            st.session_state.get(
+                "soil_mir_inner_thread_limit",
+                1,
+            )
+        ),
     }
 
 
@@ -151,6 +163,11 @@ st.write(
 st.write(
     "Results directory: "
     f"{st.session_state['soil_mir_output_dir']}"
+)
+st.write(
+    "Performance: "
+    f"**{settings['outer_n_jobs']} outer workers**, "
+    f"**{settings['inner_thread_limit']} inner numerical thread(s) per worker**"
 )
 
 if "loso" in methods:

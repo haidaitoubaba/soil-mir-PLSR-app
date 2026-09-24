@@ -74,6 +74,8 @@ def _config(axis, method="kfold"):
         "units": "g C/kg soil",
         "transform": "sqrt",
         "model_role": "final_all_samples",
+        "outer_n_jobs": 1,
+        "inner_thread_limit": 1,
     }
     return prepare_region_config(
         cfg,
@@ -168,4 +170,101 @@ def test_kennard_stone_split_is_deterministic():
     assert (
         len(np.unique(keys[first[0][1]]))
         == 2
+    )
+
+
+
+def test_parallel_outer_validation_matches_sequential_results():
+    X, y, keys, labels, axis = _dataset()
+
+    sequential_cfg = _config(axis)
+    sequential_cfg["outer_n_jobs"] = 1
+    parallel_cfg = _config(axis)
+    parallel_cfg["outer_n_jobs"] = 2
+
+    sequential = run_validation(
+        X,
+        y,
+        keys,
+        labels,
+        axis,
+        sequential_cfg,
+    )
+    parallel = run_validation(
+        X,
+        y,
+        keys,
+        labels,
+        axis,
+        parallel_cfg,
+    )
+
+    sort_columns = [
+        "Outer Split",
+        "Sample Key",
+    ]
+    sequential_predictions = (
+        sequential["predictions"]
+        .sort_values(sort_columns)
+        .reset_index(drop=True)
+    )
+    parallel_predictions = (
+        parallel["predictions"]
+        .sort_values(sort_columns)
+        .reset_index(drop=True)
+    )
+
+    assert (
+        sequential_predictions["Sample Key"].tolist()
+        == parallel_predictions["Sample Key"].tolist()
+    )
+    np.testing.assert_allclose(
+        sequential_predictions[
+            ["Measured", "Predicted", "Residual"]
+        ],
+        parallel_predictions[
+            ["Measured", "Predicted", "Residual"]
+        ],
+        rtol=0,
+        atol=1e-12,
+    )
+
+    sequential_folds = (
+        sequential["folds"]
+        .sort_values("Outer Split")
+        .reset_index(drop=True)
+    )
+    parallel_folds = (
+        parallel["folds"]
+        .sort_values("Outer Split")
+        .reset_index(drop=True)
+    )
+    for column in (
+        "Seed",
+        "Region",
+        "Preprocessing",
+        "Rank",
+        "Calibration Samples",
+        "Validation Samples",
+    ):
+        assert (
+            sequential_folds[column].tolist()
+            == parallel_folds[column].tolist()
+        )
+
+    assert (
+        sequential["final_settings"]
+        == parallel["final_settings"]
+    )
+    assert (
+        sequential["split_info"]["outer_n_jobs"]
+        == 1
+    )
+    assert (
+        parallel["split_info"]["outer_n_jobs"]
+        == 2
+    )
+    assert (
+        parallel["split_info"]["inner_thread_limit"]
+        == 1
     )

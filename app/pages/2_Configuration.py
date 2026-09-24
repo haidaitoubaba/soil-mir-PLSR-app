@@ -139,6 +139,14 @@ _initialize_widget_state(
     "soil_mir_ks_pca_variance",
     0.99,
 )
+_initialize_widget_state(
+    "soil_mir_outer_n_jobs",
+    4,
+)
+_initialize_widget_state(
+    "soil_mir_inner_thread_limit",
+    1,
+)
 
 PROFILE_SESSION_KEYS = {
     "soil_mir_selected_properties",
@@ -157,6 +165,8 @@ PROFILE_SESSION_KEYS = {
     "soil_mir_validation_fraction",
     "soil_mir_ks_representation",
     "soil_mir_ks_pca_variance",
+    "soil_mir_outer_n_jobs",
+    "soil_mir_inner_thread_limit",
     "soil_mir_reference_ranges",
 }
 
@@ -490,6 +500,40 @@ with st.expander("Advanced spectral settings"):
         ],
     )
 
+
+with st.expander("Performance settings"):
+    st.caption(
+        "Outer validation splits can run in parallel. "
+        "Keep the inner numerical thread limit at 1 to avoid "
+        "nested BLAS/OpenMP oversubscription."
+    )
+    outer_n_jobs = st.number_input(
+        "Outer parallel workers",
+        min_value=1,
+        max_value=32,
+        step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_outer_n_jobs"
+        ],
+        help=(
+            "Legacy default is 4. A value of 1 runs outer splits "
+            "sequentially."
+        ),
+    )
+    inner_thread_limit = st.number_input(
+        "Inner numerical threads per worker",
+        min_value=1,
+        max_value=8,
+        step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_inner_thread_limit"
+        ],
+        help=(
+            "Legacy default is 1. Increasing this while also using "
+            "multiple outer workers can reduce performance."
+        ),
+    )
+
 saved_reference_ranges = st.session_state.get(
     "soil_mir_reference_ranges",
     {},
@@ -587,6 +631,10 @@ def current_values() -> dict:
         "soil_mir_validation_fraction": float(validation_fraction),
         "soil_mir_ks_representation": ks_representation,
         "soil_mir_ks_pca_variance": float(ks_pca_variance),
+        "soil_mir_outer_n_jobs": int(outer_n_jobs),
+        "soil_mir_inner_thread_limit": int(
+            inner_thread_limit
+        ),
         "soil_mir_reference_ranges": parsed_reference_ranges(),
     }
 
@@ -616,6 +664,14 @@ def validate_current_configuration() -> dict:
     if not 0 < float(validation_fraction) < 1:
         raise ValueError(
             "Holdout fraction must be between 0 and 1."
+        )
+    if int(outer_n_jobs) < 1:
+        raise ValueError(
+            "Outer parallel workers must be at least 1."
+        )
+    if int(inner_thread_limit) < 1:
+        raise ValueError(
+            "Inner numerical threads must be at least 1."
         )
     return current_values()
 

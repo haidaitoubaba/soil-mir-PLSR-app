@@ -25,6 +25,8 @@ PROFILE_WIDGET_KEYS = {
     "soil_mir_validation_fraction": "cfg_validation_fraction",
     "soil_mir_ks_representation": "cfg_ks_representation",
     "soil_mir_ks_pca_variance": "cfg_ks_pca_variance",
+    "soil_mir_outer_n_jobs": "cfg_outer_n_jobs",
+    "soil_mir_inner_thread_limit": "cfg_inner_thread_limit",
 }
 
 

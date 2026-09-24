@@ -86,6 +86,8 @@ def test_profile_widget_updates_restore_all_saved_controls():
         "soil_mir_validation_fraction": 0.25,
         "soil_mir_ks_representation": "pca",
         "soil_mir_ks_pca_variance": 0.95,
+        "soil_mir_outer_n_jobs": 4,
+        "soil_mir_inner_thread_limit": 1,
         "soil_mir_reference_ranges": {
             "202_STC": {
                 "min": 0.1,
@@ -105,6 +107,8 @@ def test_profile_widget_updates_restore_all_saved_controls():
     assert updates["cfg_region_windows"] == 5
     assert updates["cfg_internal_cv_folds"] == 8
     assert updates["cfg_outer_cv_folds"] == 4
+    assert updates["cfg_outer_n_jobs"] == 4
+    assert updates["cfg_inner_thread_limit"] == 1
     assert updates["ref_min_202_STC"] == "0.1"
     assert updates["ref_max_202_STC"] == "30.0"
     assert updates["ref_min_202_STN"] == ""

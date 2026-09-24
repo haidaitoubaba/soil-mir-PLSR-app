@@ -34,6 +34,10 @@ Parsed OPUS spectra are cached locally using file size and modification-time sig
 files can therefore be reused across STC/STN analyses without bypassing any property-specific
 filtering, preprocessing, model selection, or validation.
 
+Outer validation splits can run in parallel using the legacy-compatible default of four shared-memory
+workers while numerical libraries inside each worker are limited to one thread. This avoids nested
+BLAS/OpenMP oversubscription while preserving deterministic split seeds and result ordering.
+
 Each run creates a timestamped local directory containing a run manifest and, for each
 property/method combination:
 

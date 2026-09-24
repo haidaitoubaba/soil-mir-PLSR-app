@@ -257,6 +257,8 @@ def run_validation_analysis(
     ks_pca_variance: float,
     wn_min: float,
     wn_max: float,
+    outer_n_jobs: int = 1,
+    inner_thread_limit: int | None = 1,
     progress_callback=None,
 ) -> dict:
     cfg = {
@@ -278,6 +280,12 @@ def run_validation_analysis(
         "validation_fraction": float(validation_fraction),
         "ks_representation": ks_representation,
         "ks_pca_variance": float(ks_pca_variance),
+        "outer_n_jobs": int(outer_n_jobs),
+        "inner_thread_limit": (
+            None
+            if inner_thread_limit is None
+            else int(inner_thread_limit)
+        ),
         "method": method,
         "property_name": dataset.property_name,
         "units": dataset.units,
@@ -331,6 +339,8 @@ def preflight_validation_methods(
     ks_pca_variance: float,
     wn_min: float,
     wn_max: float,
+    outer_n_jobs: int = 1,
+    inner_thread_limit: int | None = 1,
 ) -> pd.DataFrame:
     apply_transform(
         dataset.y,
@@ -369,6 +379,16 @@ def preflight_validation_methods(
             "ks_representation": ks_representation,
             "ks_pca_variance": float(
                 ks_pca_variance
+            ),
+            "outer_n_jobs": int(
+                outer_n_jobs
+            ),
+            "inner_thread_limit": (
+                None
+                if inner_thread_limit is None
+                else int(
+                    inner_thread_limit
+                )
             ),
             "method": method,
             "property_name": dataset.property_name,

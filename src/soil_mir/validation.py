@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import time
+from contextlib import nullcontext
 
 import numpy as np
 import pandas as pd
+from joblib import Parallel, delayed
 from scipy.spatial.distance import cdist
 from sklearn.decomposition import PCA
 from sklearn.model_selection import (
     LeaveOneGroupOut,
     StratifiedShuffleSplit,
 )
+from threadpoolctl import threadpool_limits
 
 from soil_mir.metrics import (
     grouped_average_frame,
@@ -549,6 +552,177 @@ def summarize_validation(
     )
 
 
+def _parallel_settings(
+    cfg: dict,
+) -> tuple[int, int | None]:
+    outer_n_jobs = cfg.get(
+        "outer_n_jobs",
+        1,
+    )
+    if (
+        isinstance(outer_n_jobs, bool)
+        or not isinstance(
+            outer_n_jobs,
+            (int, np.integer),
+        )
+        or outer_n_jobs == 0
+    ):
+        raise ValueError(
+            "outer_n_jobs must be a nonzero integer."
+        )
+
+    inner_thread_limit = cfg.get(
+        "inner_thread_limit",
+        1,
+    )
+    if inner_thread_limit is not None and (
+        isinstance(inner_thread_limit, bool)
+        or not isinstance(
+            inner_thread_limit,
+            (int, np.integer),
+        )
+        or inner_thread_limit < 1
+    ):
+        raise ValueError(
+            "inner_thread_limit must be a positive integer or None."
+        )
+
+    return (
+        int(outer_n_jobs),
+        (
+            None
+            if inner_thread_limit is None
+            else int(inner_thread_limit)
+        ),
+    )
+
+
+def numerical_thread_context(
+    cfg: dict,
+):
+    _, limit = _parallel_settings(cfg)
+    if limit is None:
+        return nullcontext()
+    return threadpool_limits(
+        limits=limit,
+    )
+
+
+def _run_outer_splits(
+    splits: list,
+    X: np.ndarray,
+    y: np.ndarray,
+    keys: np.ndarray,
+    labels: np.ndarray,
+    axis: np.ndarray,
+    cfg: dict,
+    progress_callback=None,
+) -> list[dict]:
+    outer_n_jobs, _ = _parallel_settings(
+        cfg
+    )
+    total_steps = len(splits) + 1
+
+    if outer_n_jobs == 1 or len(splits) == 1:
+        results = []
+        for number, split in enumerate(
+            splits,
+            1,
+        ):
+            if progress_callback is not None:
+                progress_callback(
+                    number - 1,
+                    total_steps,
+                    (
+                        f"Outer split {number}/"
+                        f"{len(splits)}"
+                    ),
+                )
+            results.append(
+                run_outer_fold(
+                    number,
+                    split,
+                    X,
+                    y,
+                    keys,
+                    labels,
+                    axis,
+                    cfg,
+                )
+            )
+            if progress_callback is not None:
+                progress_callback(
+                    number,
+                    total_steps,
+                    (
+                        f"Completed outer split "
+                        f"{number}/{len(splits)}"
+                    ),
+                )
+        return results
+
+    if progress_callback is not None:
+        progress_callback(
+            0,
+            total_steps,
+            (
+                f"Running {len(splits)} outer splits "
+                f"with {outer_n_jobs} parallel workers"
+            ),
+        )
+
+    generated = Parallel(
+        n_jobs=outer_n_jobs,
+        prefer="threads",
+        require="sharedmem",
+        return_as="generator_unordered",
+    )(
+        delayed(run_outer_fold)(
+            number,
+            split,
+            X,
+            y,
+            keys,
+            labels,
+            axis,
+            cfg,
+        )
+        for number, split in enumerate(
+            splits,
+            1,
+        )
+    )
+
+    completed = 0
+    by_number = {}
+    for result in generated:
+        number = int(
+            result["record"][
+                "Outer Split"
+            ]
+        )
+        by_number[number] = result
+        completed += 1
+        if progress_callback is not None:
+            progress_callback(
+                completed,
+                total_steps,
+                (
+                    f"Completed outer split {number}/"
+                    f"{len(splits)} "
+                    f"({completed}/{len(splits)} complete)"
+                ),
+            )
+
+    return [
+        by_number[number]
+        for number in range(
+            1,
+            len(splits) + 1,
+        )
+    ]
+
+
 def run_validation(
     X: np.ndarray,
     y: np.ndarray,
@@ -598,53 +772,50 @@ def run_validation(
                 )
 
     total_steps = len(splits) + 1
-    results = []
-    for number, split in enumerate(splits, 1):
-        if progress_callback is not None:
-            progress_callback(
-                number - 1,
-                total_steps,
-                f"Outer split {number}/{len(splits)}",
-            )
-        results.append(
-            run_outer_fold(
-                number,
-                split,
-                X,
-                y,
-                keys,
-                labels,
-                axis,
-                cfg,
-            )
-        )
-        if progress_callback is not None:
-            progress_callback(
-                number,
-                total_steps,
-                f"Completed outer split {number}/{len(splits)}",
-            )
+    outer_n_jobs, inner_thread_limit = (
+        _parallel_settings(cfg)
+    )
+    split_info.update(
+        {
+            "outer_n_jobs": outer_n_jobs,
+            "inner_thread_limit": (
+                inner_thread_limit
+            ),
+        }
+    )
 
-    final_cfg = {
-        **cfg,
-        "model_role": "final_all_samples",
-    }
-    if progress_callback is not None:
-        progress_callback(
-            len(splits),
-            total_steps,
-            "Fitting final all-data model",
-        )
-    final_model, final_settings, _, final_search = (
-        fit_calibration_model(
+    with numerical_thread_context(cfg):
+        results = _run_outer_splits(
+            splits,
             X,
             y,
             keys,
-            axis,
-            final_cfg,
             labels,
+            axis,
+            cfg,
+            progress_callback=progress_callback,
         )
-    )
+
+        final_cfg = {
+            **cfg,
+            "model_role": "final_all_samples",
+        }
+        if progress_callback is not None:
+            progress_callback(
+                len(splits),
+                total_steps,
+                "Fitting final all-data model",
+            )
+        final_model, final_settings, _, final_search = (
+            fit_calibration_model(
+                X,
+                y,
+                keys,
+                axis,
+                final_cfg,
+                labels,
+            )
+        )
     if progress_callback is not None:
         progress_callback(
             total_steps,
