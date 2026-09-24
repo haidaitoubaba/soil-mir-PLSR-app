@@ -7,7 +7,7 @@ run history, and prediction.
 
 The app now provides:
 
-1. **Data** — choose any local Bruker OPUS directory, reference workbook, and results directory. On macOS, native Finder buttons are available; successful selections are remembered as the last-used paths. Auto-detected legacy layouts are suggestions only and are never selected automatically. Property sheets are also never preselected; the user explicitly chooses which properties to inspect or model.
+1. **Data** — choose any local Bruker OPUS directory, reference workbook, and results directory. On macOS and Windows, native Browse buttons are available; successful selections are remembered as the last-used paths. Auto-detected legacy layouts are suggestions only and are never selected automatically. Property sheets are also never preselected; the user explicitly chooses which properties to inspect or model.
 2. **Configuration** — select properties and validation/model-search settings.
 3. **Run** — run an explicit preflight feasibility check first, review its Pass/Fail table, then start nested validation in a responsive background job. Live progress remains visible, the run can be safely cancelled at scientific checkpoints, and incomplete runs remain resumable without repeating completed property/method combinations.
 4. **Results** — review outer-validation metrics, predictions, model selection, and saved artifacts.
