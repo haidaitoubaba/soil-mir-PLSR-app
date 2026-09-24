@@ -65,3 +65,18 @@ python -m streamlit run app/Home.py
 
 All repository builds, dependency installation for development, linting, scientific tests, and
 startup smoke tests are automated in GitLab CI.
+
+
+## macOS release candidate
+
+The repository version is `0.1.0`. GitLab CI now builds a deterministic macOS RC ZIP after the
+validation and quality gates pass. The artifact contains the application source, `pyproject.toml`,
+the executable `run_app.command` launcher, release instructions, and build metadata; development
+tests, CI files, local environments, and research data are excluded.
+
+This RC remains a local-first Python distribution: the target Mac needs Python 3.10+ and internet
+access on first launch for dependency installation. It is not yet a signed/notarized standalone
+`.app`.
+
+Before promoting an RC to the final v0.1.0 release, complete `RELEASE_CHECKLIST.md` using the CI
+ZIP artifact on a clean or representative Mac.
