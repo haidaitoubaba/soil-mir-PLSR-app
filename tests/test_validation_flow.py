@@ -11,7 +11,7 @@ from soil_mir.validation import (
 )
 
 
-def _dataset():
+def _dataset(groups=2):
     rng = np.random.default_rng(20260923)
     axis = np.linspace(600, 4000, 64)
     rows = []
@@ -21,7 +21,7 @@ def _dataset():
 
     for index in range(8):
         sample = f"S{index:02d}"
-        group = str(index % 2)
+        group = str(index % groups)
         signal = (
             0.12
             + 0.00003 * axis
@@ -294,3 +294,194 @@ def test_validation_honors_pre_requested_cancellation():
             cfg,
             cancel_event=cancel_event,
         )
+
+
+
+@pytest.mark.parametrize(
+    ("method", "groups", "expected_splits"),
+    [
+        ("monte_carlo", 4, 2),
+        ("loso", 4, 8),
+        ("logo", 4, 4),
+        ("kennard_stone", 4, 1),
+    ],
+)
+def test_outer_validation_designs_keep_replicates_together(
+    method,
+    groups,
+    expected_splits,
+):
+    X, _, keys, labels, axis = _dataset(
+        groups=groups
+    )
+    cfg = _config(
+        axis,
+        method=method,
+    )
+
+    splits, _ = outer_splits(
+        X,
+        keys,
+        labels,
+        cfg,
+    )
+
+    assert len(splits) == expected_splits
+    for train, test in splits:
+        assert not (
+            set(keys[train])
+            & set(keys[test])
+        )
+
+    if method == "loso":
+        held_out = [
+            set(keys[test]).pop()
+            for _, test in splits
+        ]
+        assert set(held_out) == set(keys)
+        assert all(
+            len(np.unique(keys[test])) == 1
+            for _, test in splits
+        )
+
+    if method == "logo":
+        held_out_groups = [
+            set(labels[test]).pop()
+            for _, test in splits
+        ]
+        assert set(held_out_groups) == set(labels)
+        assert all(
+            len(np.unique(labels[test])) == 1
+            for _, test in splits
+        )
+
+
+def test_monte_carlo_splits_are_reproducible():
+    X, _, keys, labels, axis = _dataset(
+        groups=4
+    )
+    cfg = _config(
+        axis,
+        method="monte_carlo",
+    )
+
+    first, first_info = outer_splits(
+        X,
+        keys,
+        labels,
+        cfg,
+    )
+    second, second_info = outer_splits(
+        X,
+        keys,
+        labels,
+        cfg,
+    )
+
+    assert first_info == second_info
+    assert len(first) == 2
+    for (
+        (first_train, first_test),
+        (second_train, second_test),
+    ) in zip(first, second):
+        np.testing.assert_array_equal(
+            first_train,
+            second_train,
+        )
+        np.testing.assert_array_equal(
+            first_test,
+            second_test,
+        )
+
+
+def _light_method_config(
+    axis,
+    method,
+):
+    cfg = _config(
+        axis,
+        method=method,
+    )
+    cfg.update(
+        {
+            "max_rank": 1,
+            "region_search_n_windows": 1,
+            "internal_cv_folds": 2,
+            "outer_n_jobs": 1,
+        }
+    )
+    return prepare_region_config(
+        cfg,
+        axis,
+    )
+
+
+def test_monte_carlo_end_to_end_uses_repeat_summary():
+    X, y, keys, labels, axis = _dataset(
+        groups=4
+    )
+    cfg = _light_method_config(
+        axis,
+        "monte_carlo",
+    )
+
+    result = run_validation(
+        X,
+        y,
+        keys,
+        labels,
+        axis,
+        cfg,
+    )
+
+    assert len(result["folds"]) == 2
+    assert set(
+        result["summary"]["Metric"]
+    ) == {
+        "R2",
+        "RMSE",
+        "RPIQ",
+        "Bias",
+    }
+    assert {
+        "SD",
+        "Median",
+        "2.5 Percentile",
+        "97.5 Percentile",
+    } <= set(
+        result["summary"].columns
+    )
+    assert result[
+        "split_info"
+    ]["repeats"] == 2
+
+
+def test_kennard_stone_end_to_end_has_single_fixed_holdout():
+    X, y, keys, labels, axis = _dataset(
+        groups=4
+    )
+    cfg = _light_method_config(
+        axis,
+        "kennard_stone",
+    )
+
+    result = run_validation(
+        X,
+        y,
+        keys,
+        labels,
+        axis,
+        cfg,
+    )
+
+    assert len(result["folds"]) == 1
+    assert result[
+        "split_info"
+    ]["representation"] == "raw"
+    assert result[
+        "unique_validation_samples"
+    ] == 2
+    assert (
+        result["summary"]["Scope"]
+        == "One spectrally selected holdout"
+    ).all()

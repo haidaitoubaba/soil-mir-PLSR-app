@@ -66,13 +66,21 @@ def _settings():
 def test_preflight_accepts_feasible_methods():
     frame = preflight_validation_methods(
         _dataset(groups=4),
-        methods=["kfold", "logo", "kennard_stone"],
+        methods=[
+            "kfold",
+            "monte_carlo",
+            "loso",
+            "logo",
+            "kennard_stone",
+        ],
         **_settings(),
     )
 
     assert set(frame["Status"]) == {"Pass"}
     assert set(frame["Method"]) == {
         "kfold",
+        "monte_carlo",
+        "loso",
         "logo",
         "kennard_stone",
     }
