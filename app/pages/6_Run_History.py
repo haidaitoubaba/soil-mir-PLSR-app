@@ -6,6 +6,10 @@ import pandas as pd
 import streamlit as st
 
 from soil_mir.reporting import list_run_history
+from soil_mir.methods import (
+    format_analysis_key,
+    validation_method_label,
+)
 from soil_mir.services.history import (
     load_run_config,
     load_saved_run,
@@ -60,7 +64,13 @@ for manifest in history:
                 manifest.get("properties", [])
             ),
             "Methods": ", ".join(
-                manifest.get("methods", [])
+                validation_method_label(
+                    method
+                )
+                for method in manifest.get(
+                    "methods",
+                    [],
+                )
             ),
             "Completed analyses": len(results),
             "Pending analyses": len(
@@ -112,7 +122,12 @@ for manifest in history:
             st.write(
                 "**Pending analyses:** "
                 + ", ".join(
-                    sorted(pending)
+                    format_analysis_key(
+                        key
+                    )
+                    for key in sorted(
+                        pending
+                    )
                 )
             )
             if st.button(
@@ -199,7 +214,12 @@ for manifest in history:
             result_rows.append(
                 {
                     "Property": result.get("property", ""),
-                    "Method": result.get("method", ""),
+                    "Method": validation_method_label(
+                        result.get(
+                            "method",
+                            "",
+                        )
+                    ),
                     "R²": metrics.get("R2"),
                     "RMSE": metrics.get("RMSE"),
                     "RPIQ": metrics.get("RPIQ"),
@@ -255,9 +275,11 @@ for manifest in history:
                             "property",
                             "",
                         ),
-                        "Method": refit.get(
-                            "method",
-                            "",
+                        "Method": validation_method_label(
+                            refit.get(
+                                "method",
+                                "",
+                            )
                         ),
                         "Tolerance (%)": refit.get(
                             "refit_tolerance_pct"
@@ -327,8 +349,13 @@ for manifest in history:
                         0.0,
                     )
                 )
+                method_label = (
+                    validation_method_label(
+                        method
+                    )
+                )
                 st.markdown(
-                    f"**{property_name} / {method} — "
+                    f"**{property_name} / {method_label} — "
                     f"final-only refit {tolerance:g}%**"
                 )
                 refit_download_col, refit_predict_col = st.columns(
@@ -431,8 +458,13 @@ for manifest in history:
                 "method",
             )
             if artifacts:
+                method_label = (
+                    validation_method_label(
+                        method
+                    )
+                )
                 st.markdown(
-                    f"**{property_name} / {method} artifacts**"
+                    f"**{property_name} / {method_label} artifacts**"
                 )
                 st.code(
                     artifacts.get(
@@ -454,7 +486,7 @@ for manifest in history:
                 )
                 if workbook.is_file():
                     st.download_button(
-                        f"Download {property_name} {method} workbook",
+                        f"Download {property_name} {method_label} workbook",
                         data=workbook.read_bytes(),
                         file_name=workbook.name,
                         mime=(
@@ -473,7 +505,7 @@ for manifest in history:
                     )
                     with model_download_col:
                         st.download_button(
-                            f"Download {property_name} {method} model",
+                            f"Download {property_name} {method_label} model",
                             data=model_path.read_bytes(),
                             file_name=model_path.name,
                             mime="application/octet-stream",
@@ -486,7 +518,7 @@ for manifest in history:
                         )
                     with model_predict_col:
                         if st.button(
-                            f"Use {property_name} {method} in Predict",
+                            f"Use {property_name} {method_label} in Predict",
                             key=(
                                 f"history_predict_"
                                 f"{manifest.get('run_id')}_"

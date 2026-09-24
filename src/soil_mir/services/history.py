@@ -5,6 +5,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from soil_mir.methods import (
+    validation_method_label,
+)
+
 from soil_mir.reporting import (
     list_run_history,
 )
@@ -384,7 +388,7 @@ def list_saved_models(
             label = (
                 f"{run_id} | "
                 f"{property_name} | "
-                f"{method}"
+                f"{validation_method_label(method)}"
             )
             if rank is not None:
                 label += f" | rank {rank}"
@@ -448,7 +452,7 @@ def list_saved_models(
             label = (
                 f"{run_id} | "
                 f"{property_name} | "
-                f"{method} | "
+                f"{validation_method_label(method)} | "
                 f"final-only refit "
                 f"{float(tolerance):g}%"
             )

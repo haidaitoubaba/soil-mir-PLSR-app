@@ -5,6 +5,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from soil_mir.methods import (
+    validation_method_label,
+)
+
 from soil_mir.plotting import (
     measured_vs_predicted_figure,
     residual_distribution_figure,
@@ -93,7 +97,9 @@ for result in results.values():
     summary_rows.append(
         {
             "Property": result["property"],
-            "Method": result["method"],
+            "Method": validation_method_label(
+                result["method"]
+            ),
             "R²": float(
                 summary.loc["R2", "Value"]
             ),
@@ -145,8 +151,11 @@ st.info(
 )
 
 for result in results.values():
+    method_label = validation_method_label(
+        result["method"]
+    )
     with st.expander(
-        f"{result['property']} — {result['method']}",
+        f"{result['property']} — {method_label}",
         expanded=True,
     ):
         summary = result["summary"].set_index(
@@ -360,7 +369,7 @@ for result in results.values():
                     with st.status(
                         (
                             f"Refitting {result['property']} / "
-                            f"{result['method']} at "
+                            f"{method_label} at "
                             f"{selected_tolerance}%"
                         ),
                         expanded=True,
@@ -568,7 +577,7 @@ for result in results.values():
                 predictions["Predicted"],
                 title=(
                     f"{result['property']} — "
-                    f"{result['method']}"
+                    f"{method_label}"
                 ),
                 predicted_label=(
                     "Validation predicted"
@@ -590,7 +599,7 @@ for result in results.values():
             residuals["Residual"],
             title=(
                 f"{result['property']} — "
-                f"{result['method']} residuals"
+                f"{method_label} residuals"
             ),
             predicted_label=(
                 "Validation predicted"
@@ -610,7 +619,7 @@ for result in results.values():
                 residuals["Residual"],
                 title=(
                     f"{result['property']} — "
-                    f"{result['method']} residual distribution"
+                    f"{method_label} residual distribution"
                 ),
             )
         )

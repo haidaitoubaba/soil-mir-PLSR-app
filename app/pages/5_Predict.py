@@ -6,6 +6,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from soil_mir.methods import (
+    validation_method_label,
+)
+
 from soil_mir.plotting import (
     measured_vs_predicted_figure,
     residual_distribution_figure,
@@ -104,7 +108,7 @@ if selected_history_model:
     st.success(
         "Model selected from Run History: "
         f"{selected_history_model.get('property', '')} / "
-        f"{selected_history_model.get('method', '')} "
+        f"{validation_method_label(selected_history_model.get('method', ''))} "
         f"({selected_history_model.get('run_id', '')})"
         f"{selected_model_suffix}"
     )
