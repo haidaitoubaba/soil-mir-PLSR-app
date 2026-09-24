@@ -135,6 +135,8 @@ def test_windows_release_bundle_contains_cross_platform_launcher(tmp_path: Path)
         batch = handle.read(f"{bundle_root}/run_app.bat")
         batch.decode("ascii")
         assert b"scripts\\launch_app.py" in batch
+        assert b"\r\n" in batch
+        assert b"^>=" not in batch
 
 
 def test_release_builders_share_version_and_bundle_naming_helpers():

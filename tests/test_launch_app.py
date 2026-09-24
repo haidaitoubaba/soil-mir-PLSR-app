@@ -60,3 +60,10 @@ def test_platform_wrappers_delegate_to_shared_launcher():
     assert "pip install" not in mac
     assert "pip install" not in batch
     assert "pip install" not in powershell
+
+
+
+def test_windows_batch_version_check_uses_literal_comparison():
+    batch = (ROOT / "run_app.bat").read_text(encoding="utf-8")
+    assert "sys.version_info >= (3, 10)" in batch
+    assert "^>=" not in batch

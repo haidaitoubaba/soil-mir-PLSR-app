@@ -34,6 +34,15 @@ def add_bytes(handle: zipfile.ZipFile, name: str, content: bytes) -> None:
     handle.writestr(zip_info(name), content)
 
 
+def windows_file_bytes(path: Path) -> bytes:
+    content = path.read_bytes()
+    if path.suffix.lower() not in {".bat", ".ps1"}:
+        return content
+
+    text = content.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    return text.replace("\n", "\r\n").encode("utf-8")
+
+
 def build_bundle(output_dir: Path, label: str, commit: str) -> Path:
     version = validate_release_inputs(WINDOWS_REQUIRED_FILES)
     label, bundle_root, is_final_release = release_identity(version, label)
@@ -79,7 +88,7 @@ For release validation, see WINDOWS_RELEASE_CHECKLIST.md.
             add_bytes(
                 handle,
                 f"{bundle_root}/{relative}",
-                path.read_bytes(),
+                windows_file_bytes(path),
             )
 
         add_bytes(

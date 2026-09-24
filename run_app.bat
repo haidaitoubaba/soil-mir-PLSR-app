@@ -16,7 +16,7 @@ if not errorlevel 1 goto try_py
 goto try_python
 
 :try_py
-py -3 -c "import sys; raise SystemExit(0 if sys.version_info ^>= (3, 10) else 1)" >nul 2>&1
+py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1
 if errorlevel 1 goto try_python
 py -3 "%ROOT%scripts\launch_app.py"
 set "EXIT_CODE=%ERRORLEVEL%"
@@ -25,7 +25,7 @@ goto finish
 :try_python
 where python >nul 2>&1
 if errorlevel 1 goto missing_python
-python -c "import sys; raise SystemExit(0 if sys.version_info ^>= (3, 10) else 1)" >nul 2>&1
+python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1
 if errorlevel 1 goto unsupported_python
 python "%ROOT%scripts\launch_app.py"
 set "EXIT_CODE=%ERRORLEVEL%"
