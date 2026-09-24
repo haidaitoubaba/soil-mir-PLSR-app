@@ -9,7 +9,7 @@ The app now provides:
 
 1. **Data** — choose any local Bruker OPUS directory, reference workbook, and results directory. On macOS, native Finder buttons are available; successful selections are remembered as the last-used paths. Auto-detected legacy layouts are suggestions only and are never selected automatically.
 2. **Configuration** — select properties and validation/model-search settings.
-3. **Run** — execute nested validation and a separate all-data final model refit.
+3. **Run** — run an explicit preflight feasibility check first, review its Pass/Fail table, then start nested validation and a separate all-data final model refit with live property/method/split progress.
 4. **Results** — review outer-validation metrics, predictions, model selection, and saved artifacts.
 5. **Predict** — apply a saved final `.joblib` model to an external OPUS directory in either prediction-only or external-validation mode. External validation uses the reference worksheet's exact `File Name` → `Sample` mapping, allows only the authoritative script's ≤0.25 cm⁻¹ endpoint tolerance by default, reports validation metrics, and exports a four-sheet Excel workbook.
 6. **Run History** — reopen persistent summaries and saved artifacts from earlier runs.
