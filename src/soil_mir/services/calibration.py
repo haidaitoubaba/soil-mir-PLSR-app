@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,6 +39,13 @@ class CalibrationDataset:
     cache_hits: int = 0
     cache_misses: int = 0
     cache_path: str = ""
+    raw_wavenumber_min: float | None = None
+    raw_wavenumber_max: float | None = None
+    shared_wavenumber_min: float | None = None
+    shared_wavenumber_max: float | None = None
+    alignment_reference_points: int = 0
+    shared_spectral_points: int = 0
+    endpoint_trimmed_points: int = 0
 
 
 def load_calibration_dataset(
@@ -134,9 +142,32 @@ def load_calibration_dataset(
         name: axis
         for name, (_values, axis) in spectra_by_name.items()
     }
+    axis_lengths = [
+        len(axis)
+        for axis in raw_axes.values()
+    ]
+    alignment_reference_points = Counter(
+        axis_lengths
+    ).most_common(1)[0][0]
+    raw_wavenumber_min = min(
+        float(np.min(axis))
+        for axis in raw_axes.values()
+    )
+    raw_wavenumber_max = max(
+        float(np.max(axis))
+        for axis in raw_axes.values()
+    )
+
     aligned_spectra, target_axis = align_spectral_library(
         raw_spectra,
         raw_axes,
+    )
+    shared_spectral_points = int(
+        len(target_axis)
+    )
+    endpoint_trimmed_points = int(
+        alignment_reference_points
+        - shared_spectral_points
     )
     matrices = [
         aligned_spectra[filename]
@@ -187,6 +218,23 @@ def load_calibration_dataset(
             str(cache_stats.cache_path)
             if cache_stats.cache_path is not None
             else ""
+        ),
+        raw_wavenumber_min=raw_wavenumber_min,
+        raw_wavenumber_max=raw_wavenumber_max,
+        shared_wavenumber_min=float(
+            np.min(target_axis)
+        ),
+        shared_wavenumber_max=float(
+            np.max(target_axis)
+        ),
+        alignment_reference_points=(
+            alignment_reference_points
+        ),
+        shared_spectral_points=(
+            shared_spectral_points
+        ),
+        endpoint_trimmed_points=(
+            endpoint_trimmed_points
         ),
     )
 

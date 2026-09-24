@@ -323,6 +323,7 @@ if (
             reference_path_text
         )
         rows = []
+        zero_reference_details = []
 
         for sheet in selected:
             summary = summarize_property(
@@ -341,6 +342,26 @@ if (
                 available,
                 columns,
             )
+            numeric_reference = pd.to_numeric(
+                frame[columns.reference_value],
+                errors="coerce",
+            )
+            zero_samples = sorted(
+                frame.loc[
+                    numeric_reference == 0,
+                    columns.sample_id,
+                ]
+                .dropna()
+                .astype(str)
+                .unique()
+            )
+            if zero_samples:
+                zero_reference_details.append(
+                    (
+                        sheet,
+                        zero_samples,
+                    )
+                )
             rows.append(
                 {
                     "Property": summary.sheet,
@@ -354,6 +375,9 @@ if (
                     ),
                     "Zero refs": (
                         summary.zero_reference_values
+                    ),
+                    "Zero ref samples": "; ".join(
+                        zero_samples
                     ),
                     "Negative refs": (
                         summary.negative_reference_values
@@ -386,6 +410,24 @@ if (
             use_container_width=True,
             hide_index=True,
         )
+
+        if zero_reference_details:
+            detail_text = "; ".join(
+                (
+                    f"{sheet}: "
+                    + ", ".join(samples)
+                )
+                for sheet, samples
+                in zero_reference_details
+            )
+            st.warning(
+                "Zero reference values detected and retained: "
+                f"{detail_text}. "
+                "They are not removed automatically. "
+                "Use the property-specific reference filter in "
+                "Configuration only if these zeros are known "
+                "placeholders or invalid measurements."
+            )
 
         for sheet in selected:
             frame = read_property_sheet(
@@ -465,6 +507,12 @@ if (
                     acceptance["properties"],
                     use_container_width=True,
                     hide_index=True,
+                )
+                st.caption(
+                    "Raw coverage shows the full range present across the "
+                    "loaded OPUS axes. Shared coverage is the no-extrapolation "
+                    "intersection used for alignment. Final coverage is the "
+                    "configured modelling range after optional CO₂ exclusion."
                 )
                 if not acceptance["alignment"].empty:
                     st.subheader(

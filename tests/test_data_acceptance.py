@@ -49,6 +49,13 @@ def _dataset(property_name, cache_hits, cache_misses):
         unique_samples=2,
         cache_hits=cache_hits,
         cache_misses=cache_misses,
+        raw_wavenumber_min=598.5,
+        raw_wavenumber_max=4001.0,
+        shared_wavenumber_min=600.0,
+        shared_wavenumber_max=4000.0,
+        alignment_reference_points=34,
+        shared_spectral_points=32,
+        endpoint_trimmed_points=2,
     )
 
 
@@ -167,3 +174,55 @@ def test_acceptance_reuses_shared_files_and_writes_report(
     assert Path(
         result["report_path"]
     ).is_file()
+
+
+
+def test_acceptance_reports_alignment_coverage(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        acceptance,
+        "load_property_metadata",
+        lambda _path: {},
+    )
+    monkeypatch.setattr(
+        acceptance,
+        "summarize_property",
+        lambda _path, prop, metadata=None: _summary(prop),
+    )
+    monkeypatch.setattr(
+        acceptance,
+        "read_property_sheet",
+        lambda _path, _prop: pd.DataFrame(
+            {
+                "File Name": ["A.0"],
+                "Sample": ["A"],
+                "Reference Value": [1.0],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        acceptance,
+        "load_calibration_dataset",
+        lambda *args, **kwargs: _dataset(
+            "202_STC",
+            cache_hits=1,
+            cache_misses=0,
+        ),
+    )
+
+    result = acceptance.run_data_acceptance(
+        tmp_path / "spectra",
+        tmp_path / "reference.xlsx",
+        tmp_path / "results",
+        properties=["202_STC"],
+    )
+
+    row = result["properties"].iloc[0]
+    assert row["Raw coverage min"] == 598.5
+    assert row["Raw coverage max"] == 4001.0
+    assert row["Shared coverage min"] == 600.0
+    assert row["Shared coverage max"] == 4000.0
+    assert row["Endpoint points trimmed"] == 2
+    assert row["Final spectral points"] == 32

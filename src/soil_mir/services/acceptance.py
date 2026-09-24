@@ -97,13 +97,34 @@ def run_data_acceptance(
                         dataset.group_labels
                     ).nunique()
                 ),
-                "Spectral points": int(
+                "Raw coverage min": (
+                    dataset.raw_wavenumber_min
+                ),
+                "Raw coverage max": (
+                    dataset.raw_wavenumber_max
+                ),
+                "Alignment reference points": (
+                    dataset.alignment_reference_points
+                ),
+                "Shared coverage min": (
+                    dataset.shared_wavenumber_min
+                ),
+                "Shared coverage max": (
+                    dataset.shared_wavenumber_max
+                ),
+                "Shared spectral points": (
+                    dataset.shared_spectral_points
+                ),
+                "Endpoint points trimmed": (
+                    dataset.endpoint_trimmed_points
+                ),
+                "Final spectral points": int(
                     len(dataset.wavenumbers)
                 ),
-                "Wavenumber min": float(
+                "Final wavenumber min": float(
                     dataset.wavenumbers.min()
                 ),
-                "Wavenumber max": float(
+                "Final wavenumber max": float(
                     dataset.wavenumbers.max()
                 ),
                 "Transform": dataset.transform,
