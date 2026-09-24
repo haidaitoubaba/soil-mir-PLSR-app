@@ -152,3 +152,52 @@ def test_invalid_reference_range_is_rejected(
             ref_min=5.0,
             ref_max=1.0,
         )
+
+
+def test_loader_uses_shared_spectral_coverage(
+    tmp_path,
+    monkeypatch,
+):
+    workbook = tmp_path / "reference.xlsx"
+    spectra = tmp_path / "spectra"
+    spectra.mkdir()
+    _workbook(workbook)
+
+    def varied_cache(_directory, filenames, cache_root=None):
+        del cache_root
+        broad = np.linspace(600.0, 4000.0, 32)
+        narrow = np.linspace(599.0, 3999.0, 32)
+        spectra_by_name = {}
+        for index, name in enumerate(filenames):
+            axis = broad if index % 2 == 0 else narrow
+            spectra_by_name[name] = (
+                axis * 0.001 + index,
+                axis,
+            )
+        return spectra_by_name, OpusCacheStats(
+            hits=0,
+            misses=len(filenames),
+            requested=len(filenames),
+            cache_path=None,
+        )
+
+    monkeypatch.setattr(
+        calibration,
+        "load_opus_spectra_cached",
+        varied_cache,
+    )
+
+    dataset = calibration.load_calibration_dataset(
+        spectra,
+        workbook,
+        "202_STC",
+        wn_min=600,
+        wn_max=4000,
+        fallback_exclude_co2=False,
+    )
+
+    assert dataset.rows == 6
+    assert dataset.X.shape[0] == 6
+    assert dataset.X.shape[1] == 31
+    assert dataset.wavenumbers.min() >= 600.0
+    assert dataset.wavenumbers.max() < 4000.0

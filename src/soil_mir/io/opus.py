@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,6 +43,70 @@ def resample_spectrum(
     if source_axis[0] > source_axis[-1]:
         source_axis, values = source_axis[::-1], values[::-1]
     return np.interp(target_axis, source_axis, values)
+
+
+def align_spectral_library(
+    raw_spectra: dict[str, np.ndarray],
+    raw_axes: dict[str, np.ndarray],
+) -> tuple[dict[str, np.ndarray], np.ndarray]:
+    """Align spectra on the modal grid inside coverage shared by every spectrum.
+
+    This matches the legacy scientific script: endpoints are trimmed when needed,
+    replicate rows are preserved, and extrapolation is never allowed.
+    """
+    if not raw_spectra or set(raw_spectra) != set(raw_axes):
+        raise ValueError(
+            "Spectral values and wavenumber axes must contain the same nonempty files."
+        )
+
+    axes = {
+        name: validate_wavenumbers(axis)
+        for name, axis in raw_axes.items()
+    }
+    modal_length = Counter(
+        map(len, axes.values())
+    ).most_common(1)[0][0]
+    reference_axis = next(
+        axis
+        for axis in axes.values()
+        if len(axis) == modal_length
+    )
+
+    lower = max(
+        float(np.min(axis))
+        for axis in axes.values()
+    )
+    upper = min(
+        float(np.max(axis))
+        for axis in axes.values()
+    )
+    common_axis = np.asarray(
+        reference_axis,
+        dtype=float,
+    )[
+        (reference_axis >= lower)
+        & (reference_axis <= upper)
+    ]
+
+    if len(common_axis) < 2:
+        raise ValueError(
+            "Spectra have insufficient shared wavenumber coverage."
+        )
+
+    aligned = {}
+    for name, values in raw_spectra.items():
+        try:
+            aligned[name] = resample_spectrum(
+                values,
+                axes[name],
+                common_axis,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid spectral grid for {name}: {exc}"
+            ) from exc
+
+    return aligned, common_axis
 
 
 def list_opus_files(directory: str | Path) -> list[Path]:

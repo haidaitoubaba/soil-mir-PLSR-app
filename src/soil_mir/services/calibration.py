@@ -8,7 +8,7 @@ import pandas as pd
 
 from soil_mir.config import ColumnConfig
 from soil_mir.io.cache import load_opus_spectra_cached
-from soil_mir.io.opus import resample_spectrum
+from soil_mir.io.opus import align_spectral_library
 from soil_mir.io.reference import (
     load_property_metadata,
     read_property_sheet,
@@ -126,21 +126,24 @@ def load_calibration_dataset(
         cache_root=cache_root,
     )
 
-    matrices = []
-    target_axis = None
-    for filename in filenames:
-        values, axis = spectra_by_name[filename]
-        if target_axis is None:
-            target_axis = axis
-        matrices.append(
-            resample_spectrum(
-                values,
-                axis,
-                target_axis,
-            )
-        )
+    raw_spectra = {
+        name: values
+        for name, (values, _axis) in spectra_by_name.items()
+    }
+    raw_axes = {
+        name: axis
+        for name, (_values, axis) in spectra_by_name.items()
+    }
+    aligned_spectra, target_axis = align_spectral_library(
+        raw_spectra,
+        raw_axes,
+    )
+    matrices = [
+        aligned_spectra[filename]
+        for filename in filenames
+    ]
 
-    if target_axis is None or not matrices:
+    if not matrices:
         raise ValueError("No spectra could be loaded.")
 
     X = np.vstack(matrices)
