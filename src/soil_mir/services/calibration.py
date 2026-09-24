@@ -260,6 +260,7 @@ def run_validation_analysis(
     outer_n_jobs: int = 1,
     inner_thread_limit: int | None = 1,
     progress_callback=None,
+    cancel_event=None,
 ) -> dict:
     cfg = {
         "wn_min": float(wn_min),
@@ -309,6 +310,7 @@ def run_validation_analysis(
         dataset.wavenumbers,
         cfg,
         progress_callback=progress_callback,
+        cancel_event=cancel_event,
     )
     result.update(
         {

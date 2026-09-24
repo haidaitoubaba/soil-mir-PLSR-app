@@ -552,6 +552,30 @@ def summarize_validation(
     )
 
 
+class RunCancelled(RuntimeError):
+    """Raised when the user requests cancellation at a safe checkpoint."""
+
+
+def _cancel_requested(
+    cancel_event,
+) -> bool:
+    return bool(
+        cancel_event is not None
+        and cancel_event.is_set()
+    )
+
+
+def _raise_if_cancelled(
+    cancel_event,
+) -> None:
+    if _cancel_requested(
+        cancel_event
+    ):
+        raise RunCancelled(
+            "Validation cancelled by user."
+        )
+
+
 def _parallel_settings(
     cfg: dict,
 ) -> tuple[int, int | None]:
@@ -617,6 +641,7 @@ def _run_outer_splits(
     axis: np.ndarray,
     cfg: dict,
     progress_callback=None,
+    cancel_event=None,
 ) -> list[dict]:
     outer_n_jobs, _ = _parallel_settings(
         cfg
@@ -629,6 +654,9 @@ def _run_outer_splits(
             splits,
             1,
         ):
+            _raise_if_cancelled(
+                cancel_event
+            )
             if progress_callback is not None:
                 progress_callback(
                     number - 1,
@@ -676,6 +704,7 @@ def _run_outer_splits(
         prefer="threads",
         require="sharedmem",
         return_as="generator_unordered",
+        pre_dispatch=outer_n_jobs,
     )(
         delayed(run_outer_fold)(
             number,
@@ -696,6 +725,19 @@ def _run_outer_splits(
     completed = 0
     by_number = {}
     for result in generated:
+        if _cancel_requested(
+            cancel_event
+        ):
+            close = getattr(
+                generated,
+                "close",
+                None,
+            )
+            if close is not None:
+                close()
+            raise RunCancelled(
+                "Validation cancelled by user."
+            )
         number = int(
             result["record"][
                 "Outer Split"
@@ -731,8 +773,12 @@ def run_validation(
     axis: np.ndarray,
     cfg: dict,
     progress_callback=None,
+    cancel_event=None,
 ) -> dict:
     started = time.time()
+    _raise_if_cancelled(
+        cancel_event
+    )
     if "_regions" not in cfg:
         cfg = prepare_region_config(
             cfg,
@@ -794,8 +840,12 @@ def run_validation(
             axis,
             cfg,
             progress_callback=progress_callback,
+            cancel_event=cancel_event,
         )
 
+        _raise_if_cancelled(
+            cancel_event
+        )
         final_cfg = {
             **cfg,
             "model_role": "final_all_samples",

@@ -1,7 +1,11 @@
+from threading import Event
+
 import numpy as np
+import pytest
 
 from soil_mir.regions import prepare_region_config
 from soil_mir.validation import (
+    RunCancelled,
     outer_splits,
     run_validation,
 )
@@ -268,3 +272,25 @@ def test_parallel_outer_validation_matches_sequential_results():
         parallel["split_info"]["inner_thread_limit"]
         == 1
     )
+
+
+
+def test_validation_honors_pre_requested_cancellation():
+    X, y, keys, labels, axis = _dataset()
+    cfg = _config(axis)
+    cancel_event = Event()
+    cancel_event.set()
+
+    with pytest.raises(
+        RunCancelled,
+        match="cancelled",
+    ):
+        run_validation(
+            X,
+            y,
+            keys,
+            labels,
+            axis,
+            cfg,
+            cancel_event=cancel_event,
+        )
