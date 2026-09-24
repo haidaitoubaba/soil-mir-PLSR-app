@@ -89,11 +89,23 @@ selected_history_model = st.session_state.get(
     "soil_mir_predict_selected_history_model"
 )
 if selected_history_model:
+    selected_model_suffix = ""
+    if (
+        selected_history_model.get(
+            "model_role"
+        )
+        == "final_only_refit"
+    ):
+        selected_model_suffix = (
+            " — final-only refit "
+            f"{float(selected_history_model.get('refit_tolerance_pct', 0)):g}%"
+        )
     st.success(
         "Model selected from Run History: "
         f"{selected_history_model.get('property', '')} / "
         f"{selected_history_model.get('method', '')} "
         f"({selected_history_model.get('run_id', '')})"
+        f"{selected_model_suffix}"
     )
 
 if historical_models:

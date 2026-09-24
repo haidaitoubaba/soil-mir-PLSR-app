@@ -69,6 +69,12 @@ for manifest in history:
                 )
             ),
             "Failed analyses": len(manifest.get("failures", [])),
+            "Final-only refits": len(
+                manifest.get(
+                    "final_refits",
+                    [],
+                )
+            ),
             "Directory": manifest.get("run_dir", ""),
         }
     )
@@ -228,6 +234,191 @@ for manifest in history:
                 use_container_width=True,
                 hide_index=True,
             )
+
+        final_refits = manifest.get(
+            "final_refits",
+            [],
+        )
+        if final_refits:
+            st.subheader(
+                "Final-only tolerance refits"
+            )
+            refit_rows = []
+            for refit in final_refits:
+                model = refit.get(
+                    "final_model",
+                    {},
+                )
+                refit_rows.append(
+                    {
+                        "Property": refit.get(
+                            "property",
+                            "",
+                        ),
+                        "Method": refit.get(
+                            "method",
+                            "",
+                        ),
+                        "Tolerance (%)": refit.get(
+                            "refit_tolerance_pct"
+                        ),
+                        "Source validation tolerance (%)": refit.get(
+                            "source_validation_tolerance_pct"
+                        ),
+                        "Preprocessing": model.get(
+                            "preprocessing",
+                            "",
+                        ),
+                        "Region": model.get(
+                            "region",
+                            "",
+                        ),
+                        "Rank": model.get(
+                            "rank"
+                        ),
+                        "Outer validation rerun": refit.get(
+                            "outer_validation_rerun",
+                            False,
+                        ),
+                    }
+                )
+            st.dataframe(
+                pd.DataFrame(
+                    refit_rows
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(
+                "These models were refit on all calibration data only. "
+                "They do not have new outer-validation metrics."
+            )
+
+            for refit in final_refits:
+                artifacts = refit.get(
+                    "artifacts",
+                    {},
+                )
+                model_path = Path(
+                    artifacts.get(
+                        "model",
+                        "",
+                    )
+                )
+                workbook = Path(
+                    artifacts.get(
+                        "workbook",
+                        "",
+                    )
+                )
+                if not model_path.is_file():
+                    continue
+                property_name = refit.get(
+                    "property",
+                    "property",
+                )
+                method = refit.get(
+                    "method",
+                    "method",
+                )
+                tolerance = float(
+                    refit.get(
+                        "refit_tolerance_pct",
+                        0.0,
+                    )
+                )
+                st.markdown(
+                    f"**{property_name} / {method} — "
+                    f"final-only refit {tolerance:g}%**"
+                )
+                refit_download_col, refit_predict_col = st.columns(
+                    2
+                )
+                with refit_download_col:
+                    st.download_button(
+                        "Download refit model",
+                        data=(
+                            model_path.read_bytes()
+                        ),
+                        file_name=(
+                            model_path.name
+                        ),
+                        mime="application/octet-stream",
+                        key=(
+                            "history_refit_model_"
+                            f"{manifest.get('run_id')}_"
+                            f"{property_name}_"
+                            f"{method}_"
+                            f"{tolerance:g}"
+                        ),
+                        use_container_width=True,
+                    )
+                    if workbook.is_file():
+                        st.download_button(
+                            "Download refit selection",
+                            data=(
+                                workbook.read_bytes()
+                            ),
+                            file_name=(
+                                workbook.name
+                            ),
+                            mime=(
+                                "application/vnd.openxmlformats-"
+                                "officedocument.spreadsheetml.sheet"
+                            ),
+                            key=(
+                                "history_refit_workbook_"
+                                f"{manifest.get('run_id')}_"
+                                f"{property_name}_"
+                                f"{method}_"
+                                f"{tolerance:g}"
+                            ),
+                            use_container_width=True,
+                        )
+                with refit_predict_col:
+                    if st.button(
+                        "Use refit model in Predict",
+                        key=(
+                            "history_refit_predict_"
+                            f"{manifest.get('run_id')}_"
+                            f"{property_name}_"
+                            f"{method}_"
+                            f"{tolerance:g}"
+                        ),
+                        use_container_width=True,
+                    ):
+                        st.session_state[
+                            "soil_mir_predict_model_input"
+                        ] = str(
+                            model_path
+                        )
+                        st.session_state[
+                            "soil_mir_predict_output_input"
+                        ] = str(
+                            Path(
+                                output_dir
+                            ).expanduser()
+                        )
+                        st.session_state[
+                            "soil_mir_predict_selected_history_model"
+                        ] = {
+                            "run_id": manifest.get(
+                                "run_id",
+                                "",
+                            ),
+                            "property": property_name,
+                            "method": method,
+                            "path": str(
+                                model_path
+                            ),
+                            "model_role": (
+                                "final_only_refit"
+                            ),
+                            "refit_tolerance_pct": tolerance,
+                        }
+                        st.switch_page(
+                            "pages/5_Predict.py"
+                        )
 
         for result in manifest.get("results", []):
             artifacts = result.get("artifacts", {})
