@@ -247,6 +247,10 @@ def outer_splits(
             outer=True,
         )
         info.update(details)
+        info["group_stratification_used"] = (
+            details["splitter"]
+            == "StratifiedGroupKFold"
+        )
     elif method == "monte_carlo":
         sample_df = (
             pd.DataFrame(

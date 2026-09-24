@@ -51,6 +51,25 @@ def _dataset(
         exclude_co2=False,
         rows=len(rows),
         unique_samples=12,
+        group_column_present=include_groups,
+        group_labels_complete=(
+            include_groups
+            and not partial_groups
+        ),
+        group_count=(
+            groups
+            if include_groups
+            else 0
+        ),
+        missing_group_samples=(
+            1
+            if partial_groups
+            else (
+                0
+                if include_groups
+                else 12
+            )
+        ),
     )
 
 

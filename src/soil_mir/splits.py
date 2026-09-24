@@ -211,7 +211,6 @@ def grouped_splits(
             if fallback
             else ""
         ),
-        "group_stratification_used": not fallback,
         "seed": seed,
     }
 
