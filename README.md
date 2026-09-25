@@ -71,15 +71,27 @@ All repository builds, dependency installation for development, linting, scienti
 startup smoke tests are automated in GitLab CI.
 
 
-## v0.2.1 cross-platform release candidate
+## v0.2.2 cross-platform release candidate
 
-The repository version is `0.2.1`. This patch release makes `Group` optional in reference
-property sheets except when Leave-One-Group-Out (LOGO) validation is selected. GitLab CI builds
-deterministic release artifacts for both supported desktop platforms after the validation and
-quality gates pass:
+The repository version is `0.2.2`. This patch release adds explicit control over optional
+`Group` stratification and safer Run History cleanup while preserving v0.2.1 behavior by default.
 
-- macOS: `soil-mir-app-v0.2.1-<label>-mac.tar.gz`
-- Windows: `soil-mir-app-v0.2.1-<label>-windows.zip`
+Key changes include:
+
+- Configuration now includes **Use Group for stratification when available**, enabled by default.
+- K-fold and Monte Carlo can be forced to ignore `Group` and use sample-level splitting.
+- Non-LOGO inner CV follows the same Group setting; LOGO always requires and uses `Group`.
+- Preflight and Results report whether outer and inner Group stratification were actually used.
+- Run History now supports two-step permanent deletion of completed, completed-with-errors,
+  failed, and cancelled runs.
+- Running runs are protected from deletion, and deletion is restricted to validated run folders
+  directly under the selected results directory.
+
+GitLab CI builds deterministic release artifacts for both supported desktop platforms after the
+validation and quality gates pass:
+
+- macOS: `soil-mir-app-v0.2.2-<label>-mac.tar.gz`
+- Windows: `soil-mir-app-v0.2.2-<label>-windows.zip`
 
 Both distributions contain the same application and scientific engine. The platform wrappers only
 handle local Python discovery, virtual-environment startup, native path dialogs, browser launch, and
@@ -89,5 +101,5 @@ The distributions remain local-first Python packages. Target computers need Pyth
 internet access on first launch for dependency installation. The macOS package is not a
 signed/notarized standalone `.app`, and the Windows package is not a standalone installer.
 
-Before tagging `v0.2.1`, complete the relevant checks in `RELEASE_CHECKLIST.md` and
+Before tagging `v0.2.2`, complete the relevant checks in `RELEASE_CHECKLIST.md` and
 `WINDOWS_RELEASE_CHECKLIST.md` using generated CI artifacts.
