@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -11,6 +12,7 @@ from soil_mir.methods import (
 
 from soil_mir.reporting import (
     list_run_history,
+    read_run_manifest,
 )
 from soil_mir.regions import (
     build_tolerance_comparison,
@@ -24,6 +26,78 @@ REQUIRED_SHEETS = {
     "Final Calibration Search",
     "Final Model Selection",
 }
+
+DELETABLE_RUN_STATUSES = {
+    "completed",
+    "completed_with_errors",
+    "failed",
+    "cancelled",
+}
+
+
+def delete_saved_run(
+    output_base: str | Path,
+    run_dir: str | Path,
+) -> Path:
+    """Permanently delete one finished run directory.
+
+    Deletion is limited to direct child run directories of the selected
+    results directory. Active/running runs are intentionally protected.
+    """
+    root = Path(
+        output_base
+    ).expanduser().resolve()
+    target = Path(
+        run_dir
+    ).expanduser().resolve()
+
+    if not root.is_dir():
+        raise FileNotFoundError(
+            f"Results directory not found: {root}"
+        )
+    if (
+        target == root
+        or target.parent != root
+    ):
+        raise ValueError(
+            "Run directory must be a direct child of the selected "
+            "results directory."
+        )
+    if not target.is_dir():
+        raise FileNotFoundError(
+            f"Run directory not found: {target}"
+        )
+
+    manifest = read_run_manifest(
+        target
+    )
+    run_id = str(
+        manifest.get(
+            "run_id",
+            "",
+        )
+    )
+    if run_id != target.name:
+        raise ValueError(
+            "Run manifest does not match the run directory."
+        )
+
+    status = str(
+        manifest.get(
+            "status",
+            "",
+        )
+    )
+    if status not in DELETABLE_RUN_STATUSES:
+        raise ValueError(
+            "Only completed, completed-with-errors, failed, or "
+            "cancelled runs can be deleted. Running runs are protected."
+        )
+
+    shutil.rmtree(
+        target
+    )
+    return target
 
 
 def _read_optional_json(path_value: str | None) -> dict:
