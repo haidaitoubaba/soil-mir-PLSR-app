@@ -87,6 +87,7 @@ def _settings():
         "validation_fraction": 0.25,
         "ks_representation": "raw",
         "ks_pca_variance": 0.99,
+        "use_group_stratification": True,
         "wn_min": 600.0,
         "wn_max": 4000.0,
     }
@@ -182,4 +183,70 @@ def test_preflight_partial_group_falls_back_for_kfold():
     assert (
         frame.iloc[0]["Details"]
         == "Shuffled sample KFold"
+    )
+
+
+
+def test_preflight_reports_optional_group_toggle_and_actual_use():
+    settings = _settings()
+    settings["validation_fraction"] = 0.50
+    settings["use_group_stratification"] = False
+
+    frame = preflight_validation_methods(
+        _dataset(groups=4),
+        methods=[
+            "kfold",
+            "monte_carlo",
+            "logo",
+        ],
+        **settings,
+    )
+
+    kfold = frame[
+        frame["Method"] == "kfold"
+    ].iloc[0]
+    monte_carlo = frame[
+        frame["Method"] == "monte_carlo"
+    ].iloc[0]
+    logo = frame[
+        frame["Method"] == "logo"
+    ].iloc[0]
+
+    assert (
+        kfold["Group stratification requested"]
+        == "No"
+    )
+    assert (
+        kfold["Group stratification used"]
+        == "No"
+    )
+    assert (
+        kfold["Details"]
+        == "Shuffled sample KFold"
+    )
+
+    assert (
+        monte_carlo[
+            "Group stratification requested"
+        ]
+        == "No"
+    )
+    assert (
+        monte_carlo[
+            "Group stratification used"
+        ]
+        == "No"
+    )
+    assert (
+        monte_carlo["Details"]
+        == "ShuffleSplit(sample)"
+    )
+
+    assert (
+        logo["Group stratification requested"]
+        == "Required"
+    )
+    assert (
+        logo["Group stratification used"]
+        == "Yes"
     )

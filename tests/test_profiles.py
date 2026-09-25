@@ -75,6 +75,7 @@ def test_profile_widget_updates_restore_all_saved_controls():
         "soil_mir_exclude_co2": True,
         "soil_mir_max_rank": 9,
         "soil_mir_validation_methods": ["kfold"],
+        "soil_mir_use_group_stratification": False,
         "soil_mir_region_windows": 5,
         "soil_mir_tolerance": 2.5,
         "soil_mir_sg_window": 9,
@@ -104,6 +105,7 @@ def test_profile_widget_updates_restore_all_saved_controls():
     assert updates["cfg_selected_properties"] == ["202_STC"]
     assert updates["cfg_wn_range"] == (650, 3950)
     assert updates["cfg_max_rank"] == 9
+    assert updates["cfg_use_group_stratification"] is False
     assert updates["cfg_region_windows"] == 5
     assert updates["cfg_internal_cv_folds"] == 8
     assert updates["cfg_outer_cv_folds"] == 4
