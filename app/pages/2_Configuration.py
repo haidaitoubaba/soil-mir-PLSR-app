@@ -92,6 +92,10 @@ _initialize_widget_state(
     ["kfold"],
 )
 _initialize_widget_state(
+    "soil_mir_use_group_stratification",
+    True,
+)
+_initialize_widget_state(
     "soil_mir_region_windows",
     7,
 )
@@ -150,6 +154,7 @@ PROFILE_SESSION_KEYS = {
     "soil_mir_exclude_co2",
     "soil_mir_max_rank",
     "soil_mir_validation_methods",
+    "soil_mir_use_group_stratification",
     "soil_mir_region_windows",
     "soil_mir_tolerance",
     "soil_mir_sg_window",
@@ -397,6 +402,18 @@ with right:
     )
 
 st.subheader("Validation settings")
+use_group_stratification = st.checkbox(
+    "Use Group for stratification when available",
+    key=PROFILE_WIDGET_KEYS[
+        "soil_mir_use_group_stratification"
+    ],
+    help=(
+        "When enabled, K-fold and Monte Carlo use complete Group metadata "
+        "for stratification when feasible. When disabled, they ignore Group "
+        "and split at the sample level. LOSO and Kennard–Stone are unaffected; "
+        "LOGO always requires and uses Group."
+    ),
+)
 validation_left, validation_right = st.columns(2)
 
 with validation_left:
@@ -631,6 +648,9 @@ def current_values() -> dict:
         "soil_mir_exclude_co2": exclude_co2,
         "soil_mir_max_rank": int(max_rank),
         "soil_mir_validation_methods": validation_methods,
+        "soil_mir_use_group_stratification": bool(
+            use_group_stratification
+        ),
         "soil_mir_region_windows": int(region_windows),
         "soil_mir_tolerance": float(tolerance),
         "soil_mir_sg_window": int(sg_window),

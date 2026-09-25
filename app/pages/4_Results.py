@@ -188,6 +188,47 @@ for result in results.values():
             f"{final_settings['Region']} | "
             f"rank {int(final_settings['Rank'])}"
         )
+        split_info = result.get(
+            "split_info",
+            {},
+        )
+        if "group_stratification_used" in split_info:
+            group_setting = (
+                "Required"
+                if result["method"] == "logo"
+                else (
+                    "Enabled"
+                    if result.get(
+                        "config",
+                        {},
+                    ).get(
+                        "use_group_stratification",
+                        True,
+                    )
+                    else "Disabled"
+                )
+            )
+            outer_used = (
+                "Yes"
+                if split_info.get(
+                    "group_stratification_used",
+                    False,
+                )
+                else "No"
+            )
+            inner_used = (
+                "Yes"
+                if split_info.get(
+                    "inner_group_stratification_used",
+                    False,
+                )
+                else "No"
+            )
+            st.caption(
+                f"Group setting: **{group_setting}** · "
+                f"outer Group stratification used: **{outer_used}** · "
+                f"inner CV Group stratification used: **{inner_used}**"
+            )
 
         tolerance_comparison = result.get(
             "tolerance_comparison"

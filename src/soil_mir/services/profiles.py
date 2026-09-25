@@ -14,6 +14,7 @@ PROFILE_WIDGET_KEYS = {
     "soil_mir_exclude_co2": "cfg_exclude_co2",
     "soil_mir_max_rank": "cfg_max_rank",
     "soil_mir_validation_methods": "cfg_validation_methods",
+    "soil_mir_use_group_stratification": "cfg_use_group_stratification",
     "soil_mir_region_windows": "cfg_region_windows",
     "soil_mir_tolerance": "cfg_tolerance",
     "soil_mir_sg_window": "cfg_sg_window",

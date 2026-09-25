@@ -8,6 +8,7 @@ from soil_mir.services.calibration import (
     CalibrationDataset,
     refit_final_model_only,
 )
+from soil_mir.splits import inner_split_info
 from soil_mir.validation import (
     RunCancelled,
     outer_splits,
@@ -78,6 +79,7 @@ def _config(axis, method="kfold"):
         "ks_representation": "raw",
         "ks_pca_variance": 0.99,
         "method": method,
+        "use_group_stratification": True,
         "property_name": "synthetic_STC",
         "units": "g C/kg soil",
         "transform": "sqrt",
@@ -639,3 +641,164 @@ def test_logo_rejects_missing_group_labels():
             labels,
             cfg,
         )
+
+
+
+def test_kfold_group_toggle_can_force_sample_level_splitting():
+    X, _, keys, labels, axis = _dataset(
+        groups=2
+    )
+    cfg = _config(
+        axis,
+        method="kfold",
+    )
+
+    _, grouped_info = outer_splits(
+        X,
+        keys,
+        labels,
+        cfg,
+    )
+    assert (
+        grouped_info["splitter"]
+        == "StratifiedGroupKFold"
+    )
+    assert grouped_info[
+        "group_stratification_requested"
+    ] is True
+    assert grouped_info[
+        "group_stratification_used"
+    ] is True
+
+    cfg["use_group_stratification"] = False
+    _, sample_info = outer_splits(
+        X,
+        keys,
+        labels,
+        cfg,
+    )
+
+    assert (
+        sample_info["splitter"]
+        == "Shuffled sample KFold"
+    )
+    assert sample_info[
+        "group_stratification_requested"
+    ] is False
+    assert sample_info[
+        "group_stratification_used"
+    ] is False
+    assert sample_info[
+        "inner_group_stratification_used"
+    ] is False
+    assert (
+        sample_info["fallback_reason"]
+        == "Group stratification disabled by configuration"
+    )
+
+
+def test_monte_carlo_group_toggle_can_force_unstratified_holdout():
+    X, _, keys, labels, axis = _dataset(
+        groups=2
+    )
+    cfg = _config(
+        axis,
+        method="monte_carlo",
+    )
+    cfg["validation_fraction"] = 0.50
+
+    _, grouped_info = outer_splits(
+        X,
+        keys,
+        labels,
+        cfg,
+    )
+    assert (
+        grouped_info["splitter"]
+        == "StratifiedShuffleSplit(sample)"
+    )
+    assert grouped_info[
+        "group_stratification_used"
+    ] is True
+
+    cfg["use_group_stratification"] = False
+    _, sample_info = outer_splits(
+        X,
+        keys,
+        labels,
+        cfg,
+    )
+
+    assert (
+        sample_info["splitter"]
+        == "ShuffleSplit(sample)"
+    )
+    assert sample_info[
+        "group_stratification_requested"
+    ] is False
+    assert sample_info[
+        "group_stratification_used"
+    ] is False
+
+
+def test_group_toggle_also_controls_non_logo_inner_cv():
+    _, _, keys, labels, axis = _dataset(
+        groups=2
+    )
+    cfg = _config(
+        axis,
+        method="kfold",
+    )
+
+    _, grouped_info = inner_split_info(
+        keys,
+        labels,
+        cfg,
+        42,
+    )
+    assert (
+        grouped_info["splitter"]
+        == "StratifiedGroupKFold"
+    )
+
+    cfg["use_group_stratification"] = False
+    _, sample_info = inner_split_info(
+        keys,
+        labels,
+        cfg,
+        42,
+    )
+    assert sample_info["splitter"] == "GroupKFold"
+
+
+def test_logo_requires_group_even_when_optional_group_toggle_is_off():
+    X, _, keys, labels, axis = _dataset(
+        groups=4
+    )
+    cfg = _config(
+        axis,
+        method="logo",
+    )
+    cfg["use_group_stratification"] = False
+
+    splits, info = outer_splits(
+        X,
+        keys,
+        labels,
+        cfg,
+    )
+
+    assert len(splits) == 4
+    assert (
+        info["splitter"]
+        == "LeaveOneGroupOut(treatment)"
+    )
+    assert info[
+        "group_stratification_requested"
+    ] is True
+    assert info[
+        "group_stratification_used"
+    ] is True
+    assert info[
+        "inner_group_stratification_used"
+    ] is True

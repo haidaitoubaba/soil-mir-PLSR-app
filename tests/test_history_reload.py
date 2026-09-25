@@ -196,6 +196,7 @@ def test_resume_helpers_restore_run_configuration(
             "validation_fraction": 0.2,
             "ks_representation": "raw",
             "ks_pca_variance": 0.99,
+            "use_group_stratification": False,
             "wn_min": 600,
             "wn_max": 4000,
             "outer_n_jobs": 4,
@@ -228,6 +229,9 @@ def test_resume_helpers_restore_run_configuration(
     assert values[
         "soil_mir_inner_thread_limit"
     ] == 1
+    assert values[
+        "soil_mir_use_group_stratification"
+    ] is False
     assert values[
         "soil_mir_exclude_co2"
     ] is True
@@ -423,3 +427,42 @@ def test_saved_model_list_includes_final_only_refits(
     assert models[1][
         "model_role"
     ] == "validated_final_model"
+
+
+
+def test_old_run_config_defaults_group_stratification_on(
+    tmp_path,
+):
+    run_dir = tmp_path / "old_run"
+    run_dir.mkdir()
+    config = {
+        "properties": ["202_STC"],
+        "methods": ["kfold"],
+        "spectra_dir": "/data/spectra",
+        "reference_excel": "/data/reference.xlsx",
+        "analysis_settings": {
+            "max_rank": 15,
+            "region_search_n_windows": 7,
+            "rmsecv_tolerance_pct": 5.0,
+            "sg_window": 11,
+            "sg_polyorder": 2,
+            "random_seed": 42,
+            "internal_cv_folds": 10,
+            "outer_cv_folds": 5,
+            "n_repeats": 30,
+            "validation_fraction": 0.2,
+            "ks_representation": "raw",
+            "ks_pca_variance": 0.99,
+            "wn_min": 600,
+            "wn_max": 4000,
+        },
+    }
+
+    values = run_config_session_values(
+        config,
+        run_dir=run_dir,
+    )
+
+    assert values[
+        "soil_mir_use_group_stratification"
+    ] is True

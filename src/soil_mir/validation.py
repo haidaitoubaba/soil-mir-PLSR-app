@@ -232,10 +232,25 @@ def outer_splits(
     )
     method = cfg["method"]
     seed = cfg["random_seed"]
+    group_stratification_requested = bool(
+        cfg.get(
+            "use_group_stratification",
+            True,
+        )
+    )
     info = {
         "method": method,
         "seed": seed,
         "group_labels_complete": labels_complete,
+        "group_stratification_requested": (
+            True
+            if method == "logo"
+            else (
+                group_stratification_requested
+                if method in ("kfold", "monte_carlo")
+                else False
+            )
+        ),
     }
 
     if method == "kfold":
@@ -245,12 +260,19 @@ def outer_splits(
             cfg["outer_cv_folds"],
             seed,
             outer=True,
+            use_group_stratification=(
+                group_stratification_requested
+            ),
         )
         info.update(details)
         info["group_stratification_used"] = (
             details["splitter"]
             == "StratifiedGroupKFold"
         )
+        if not group_stratification_requested:
+            info["fallback_reason"] = (
+                "Group stratification disabled by configuration"
+            )
     elif method == "monte_carlo":
         sample_df = (
             pd.DataFrame(
@@ -272,7 +294,10 @@ def outer_splits(
         n_train = n_samples - n_test
 
         use_stratified = False
-        if labels_complete:
+        if (
+            group_stratification_requested
+            and labels_complete
+        ):
             group_counts = (
                 sample_df["Group"]
                 .astype(str)
@@ -410,13 +435,33 @@ def outer_splits(
             "two unique validation samples."
         )
 
+    inner_infos = []
     for number, (train, _) in enumerate(splits):
-        inner_split_info(
+        _, inner_info = inner_split_info(
             keys[train],
             labels[train],
             cfg,
             seed + number,
         )
+        inner_infos.append(inner_info)
+
+    info["inner_splitters"] = sorted(
+        {
+            str(details.get("splitter", ""))
+            for details in inner_infos
+            if details.get("splitter")
+        }
+    )
+    info["inner_group_stratification_used"] = any(
+        bool(
+            details.get(
+                "group_stratification_used",
+                details.get("splitter")
+                == "StratifiedGroupKFold",
+            )
+        )
+        for details in inner_infos
+    )
 
     return splits, info
 
