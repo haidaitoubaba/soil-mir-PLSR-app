@@ -107,6 +107,7 @@ def grouped_splits(
     count: int,
     seed: int,
     outer: bool = False,
+    use_group_stratification: bool = True,
 ) -> tuple[list, dict]:
     validate_sample_ids(keys)
     labels_complete = treatment_labels_complete(
@@ -128,7 +129,7 @@ def grouped_splits(
         )
 
     splits = None
-    if labels_complete:
+    if use_group_stratification and labels_complete:
         _, label_counts = np.unique(
             normalised,
             return_counts=True,
@@ -255,6 +256,12 @@ def inner_split_info(
         labels,
         cfg["internal_cv_folds"],
         seed,
+        use_group_stratification=bool(
+            cfg.get(
+                "use_group_stratification",
+                True,
+            )
+        ),
     )
 
 

@@ -106,6 +106,10 @@ def refit_saved_run_tolerance(
         "inner_thread_limit",
         1,
     )
+    settings.setdefault(
+        "use_group_stratification",
+        True,
+    )
 
     output_dir = Path(
         run_config.get(
@@ -233,6 +237,11 @@ def refit_saved_run_tolerance(
                     "inner_thread_limit"
                 ]
             )
+        ),
+        use_group_stratification=bool(
+            settings[
+                "use_group_stratification"
+            ]
         ),
     )
     artifacts = export_final_refit(

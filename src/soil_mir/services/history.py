@@ -230,6 +230,7 @@ def run_config_session_values(
         "validation_fraction": "soil_mir_validation_fraction",
         "ks_representation": "soil_mir_ks_representation",
         "ks_pca_variance": "soil_mir_ks_pca_variance",
+        "use_group_stratification": "soil_mir_use_group_stratification",
         "outer_n_jobs": "soil_mir_outer_n_jobs",
         "inner_thread_limit": "soil_mir_inner_thread_limit",
     }
@@ -283,6 +284,10 @@ def run_config_session_values(
     values.setdefault(
         "soil_mir_inner_thread_limit",
         1,
+    )
+    values.setdefault(
+        "soil_mir_use_group_stratification",
+        True,
     )
     return values
 

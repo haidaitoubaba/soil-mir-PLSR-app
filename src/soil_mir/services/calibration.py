@@ -353,6 +353,7 @@ def run_validation_analysis(
     wn_max: float,
     outer_n_jobs: int = 1,
     inner_thread_limit: int | None = 1,
+    use_group_stratification: bool = True,
     progress_callback=None,
     cancel_event=None,
 ) -> dict:
@@ -380,6 +381,9 @@ def run_validation_analysis(
             None
             if inner_thread_limit is None
             else int(inner_thread_limit)
+        ),
+        "use_group_stratification": bool(
+            use_group_stratification
         ),
         "method": method,
         "property_name": dataset.property_name,
@@ -441,6 +445,7 @@ def refit_final_model_only(
     wn_max: float,
     outer_n_jobs: int = 1,
     inner_thread_limit: int | None = 1,
+    use_group_stratification: bool = True,
 ) -> dict:
     """Refit only the final all-data model at a selected tolerance.
 
@@ -488,6 +493,9 @@ def refit_final_model_only(
             None
             if inner_thread_limit is None
             else int(inner_thread_limit)
+        ),
+        "use_group_stratification": bool(
+            use_group_stratification
         ),
         "method": str(method),
         "property_name": dataset.property_name,
@@ -572,6 +580,7 @@ def preflight_validation_methods(
     wn_max: float,
     outer_n_jobs: int = 1,
     inner_thread_limit: int | None = 1,
+    use_group_stratification: bool = True,
 ) -> pd.DataFrame:
     apply_transform(
         dataset.y,
@@ -580,6 +589,18 @@ def preflight_validation_methods(
     records = []
 
     for method in methods:
+        group_request = (
+            "Required"
+            if method == "logo"
+            else (
+                "Yes"
+                if (
+                    method in ("kfold", "monte_carlo")
+                    and use_group_stratification
+                )
+                else "No"
+            )
+        )
         cfg = {
             "wn_min": float(wn_min),
             "wn_max": float(wn_max),
@@ -630,6 +651,9 @@ def preflight_validation_methods(
             "excluded_reference_rows": dataset.excluded_reference_rows,
             "excluded_reference_samples": dataset.excluded_reference_samples,
             "model_role": "final_all_samples",
+            "use_group_stratification": bool(
+                use_group_stratification
+            ),
         "group_column_present": dataset.group_column_present,
         "group_labels_complete": dataset.group_labels_complete,
         "group_count": dataset.group_count,
@@ -664,6 +688,8 @@ def preflight_validation_methods(
                             else "Not provided"
                         )
                     ),
+                    "Group stratification requested": group_request,
+                    "Group stratification used": "No",
                     "Outer splits": 0,
                     "Details": str(exc),
                 }
@@ -684,6 +710,15 @@ def preflight_validation_methods(
                             if dataset.group_column_present
                             else "Not provided"
                         )
+                    ),
+                    "Group stratification requested": group_request,
+                    "Group stratification used": (
+                        "Yes"
+                        if split_info.get(
+                            "group_stratification_used",
+                            False,
+                        )
+                        else "No"
                     ),
                     "Outer splits": len(splits),
                     "Details": split_info.get(

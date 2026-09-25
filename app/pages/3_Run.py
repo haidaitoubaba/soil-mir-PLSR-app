@@ -120,6 +120,12 @@ def analysis_settings() -> dict:
                 0.99,
             )
         ),
+        "use_group_stratification": bool(
+            st.session_state.get(
+                "soil_mir_use_group_stratification",
+                True,
+            )
+        ),
         "wn_min": float(
             st.session_state[
                 "soil_mir_wn_range"
@@ -171,6 +177,15 @@ st.write(
 st.write(
     "Results directory: "
     f"{st.session_state['soil_mir_output_dir']}"
+)
+st.write(
+    "Optional Group stratification: **"
+    + (
+        "Enabled"
+        if settings["use_group_stratification"]
+        else "Disabled"
+    )
+    + "**"
 )
 st.write(
     "Performance: "

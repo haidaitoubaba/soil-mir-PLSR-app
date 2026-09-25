@@ -188,6 +188,36 @@ for result in results.values():
             f"{final_settings['Region']} | "
             f"rank {int(final_settings['Rank'])}"
         )
+        split_info = result.get(
+            "split_info",
+            {},
+        )
+        if "group_stratification_used" in split_info:
+            requested_text = (
+                "Required"
+                if result["method"] == "logo"
+                else (
+                    "Yes"
+                    if split_info.get(
+                        "group_stratification_requested",
+                        False,
+                    )
+                    else "No"
+                )
+            )
+            used_text = (
+                "Yes"
+                if split_info.get(
+                    "group_stratification_used",
+                    False,
+                )
+                else "No"
+            )
+            st.caption(
+                "Group stratification requested: "
+                f"**{requested_text}** · used: "
+                f"**{used_text}**"
+            )
 
         tolerance_comparison = result.get(
             "tolerance_comparison"
