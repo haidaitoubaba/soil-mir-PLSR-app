@@ -11,6 +11,8 @@ from soil_mir.methods import (
     validation_method_label,
 )
 from soil_mir.services.history import (
+    DELETABLE_RUN_STATUSES,
+    delete_saved_run,
     load_run_config,
     load_saved_run,
     pending_run_keys,
@@ -114,6 +116,144 @@ for manifest in history:
         error = manifest.get("error", "")
         if error:
             st.error(error)
+
+        run_id = manifest.get(
+            "run_id",
+            "run",
+        )
+        run_status = manifest.get(
+            "status",
+            "",
+        )
+        delete_state_key = (
+            "soil_mir_confirm_delete_run_"
+            f"{run_id}"
+        )
+
+        if run_status in DELETABLE_RUN_STATUSES:
+            if not st.session_state.get(
+                delete_state_key,
+                False,
+            ):
+                if st.button(
+                    "🗑 Delete this run",
+                    key=f"delete_history_{run_id}",
+                ):
+                    st.session_state[
+                        delete_state_key
+                    ] = True
+                    st.rerun()
+            else:
+                st.warning(
+                    f"Permanently delete run {run_id}? "
+                    "This removes all validation results, models, "
+                    "refits, plots, reports, and resume information "
+                    "stored in this run directory."
+                )
+                confirm_col, cancel_col = st.columns(
+                    2
+                )
+                with confirm_col:
+                    if st.button(
+                        "Delete permanently",
+                        key=(
+                            "confirm_delete_history_"
+                            f"{run_id}"
+                        ),
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        try:
+                            deleted_path = delete_saved_run(
+                                output_dir,
+                                manifest.get(
+                                    "run_dir",
+                                    "",
+                                ),
+                            )
+                        except Exception as exc:
+                            st.error(
+                                f"Could not delete run: {exc}"
+                            )
+                        else:
+                            st.session_state.pop(
+                                delete_state_key,
+                                None,
+                            )
+                            deleted_text = str(
+                                deleted_path
+                            )
+                            if (
+                                st.session_state.get(
+                                    "soil_mir_last_run_dir"
+                                )
+                                == deleted_text
+                            ):
+                                st.session_state.pop(
+                                    "soil_mir_results",
+                                    None,
+                                )
+                                st.session_state.pop(
+                                    "soil_mir_last_run_dir",
+                                    None,
+                                )
+                                st.session_state.pop(
+                                    "soil_mir_last_comparison",
+                                    None,
+                                )
+                            if (
+                                st.session_state.get(
+                                    "soil_mir_resume_run_dir"
+                                )
+                                == deleted_text
+                            ):
+                                st.session_state.pop(
+                                    "soil_mir_resume_run_dir",
+                                    None,
+                                )
+                            selected_model = (
+                                st.session_state.get(
+                                    "soil_mir_predict_selected_history_model",
+                                    {},
+                                )
+                            )
+                            if (
+                                isinstance(
+                                    selected_model,
+                                    dict,
+                                )
+                                and selected_model.get(
+                                    "run_id"
+                                )
+                                == run_id
+                            ):
+                                st.session_state.pop(
+                                    "soil_mir_predict_selected_history_model",
+                                    None,
+                                )
+                            st.success(
+                                f"Deleted run {run_id}."
+                            )
+                            st.rerun()
+                with cancel_col:
+                    if st.button(
+                        "Cancel",
+                        key=(
+                            "cancel_delete_history_"
+                            f"{run_id}"
+                        ),
+                        use_container_width=True,
+                    ):
+                        st.session_state.pop(
+                            delete_state_key,
+                            None,
+                        )
+                        st.rerun()
+        else:
+            st.caption(
+                "This run cannot be deleted while its status is "
+                f"{run_status or 'unknown'}."
+            )
 
         pending = pending_run_keys(
             manifest

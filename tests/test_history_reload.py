@@ -3,8 +3,14 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from soil_mir.reporting import (
+    finalize_run_manifest,
+    initialize_run_manifest,
+)
+
 from soil_mir.services.history import (
     completed_run_keys,
+    delete_saved_run,
     list_saved_models,
     load_run_config,
     load_saved_result,
@@ -466,3 +472,153 @@ def test_old_run_config_defaults_group_stratification_on(
     assert values[
         "soil_mir_use_group_stratification"
     ] is True
+
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "completed",
+        "completed_with_errors",
+        "failed",
+        "cancelled",
+    ],
+)
+def test_delete_saved_run_removes_finished_run_and_all_artifacts(
+    tmp_path,
+    status,
+):
+    run_dir = tmp_path / "20260925_120000_000000"
+    run_dir.mkdir()
+    nested = run_dir / "202_STC_kfold"
+    nested.mkdir()
+    (nested / "Final_Model.joblib").write_bytes(
+        b"model"
+    )
+    (run_dir / "Validation_Comparison.xlsx").write_bytes(
+        b"results"
+    )
+
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    finalize_run_manifest(
+        run_dir,
+        status=status,
+    )
+
+    deleted = delete_saved_run(
+        tmp_path,
+        run_dir,
+    )
+
+    assert deleted == run_dir.resolve()
+    assert not run_dir.exists()
+
+
+def test_delete_saved_run_protects_running_run(
+    tmp_path,
+):
+    run_dir = tmp_path / "20260925_120001_000000"
+    run_dir.mkdir()
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Running runs are protected",
+    ):
+        delete_saved_run(
+            tmp_path,
+            run_dir,
+        )
+
+    assert run_dir.is_dir()
+    assert (
+        run_dir / "Run_Manifest.json"
+    ).is_file()
+
+
+def test_delete_saved_run_rejects_directory_outside_results_root(
+    tmp_path,
+):
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    initialize_run_manifest(
+        outside,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    finalize_run_manifest(
+        outside,
+        status="completed",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="direct child",
+    ):
+        delete_saved_run(
+            results_dir,
+            outside,
+        )
+
+    assert outside.is_dir()
+
+
+def test_delete_saved_run_rejects_manifest_directory_mismatch(
+    tmp_path,
+):
+    run_dir = tmp_path / "actual_directory"
+    run_dir.mkdir()
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    finalize_run_manifest(
+        run_dir,
+        status="completed",
+    )
+
+    manifest_path = (
+        run_dir / "Run_Manifest.json"
+    )
+    payload = __import__("json").loads(
+        manifest_path.read_text(
+            encoding="utf-8"
+        )
+    )
+    payload["run_id"] = "different_directory"
+    manifest_path.write_text(
+        __import__("json").dumps(
+            payload
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="does not match",
+    ):
+        delete_saved_run(
+            tmp_path,
+            run_dir,
+        )
+
+    assert run_dir.is_dir()
