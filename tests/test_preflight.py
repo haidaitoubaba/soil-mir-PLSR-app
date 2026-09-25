@@ -217,7 +217,11 @@ def test_preflight_reports_optional_group_toggle_and_actual_use():
         == "No"
     )
     assert (
-        kfold["Group stratification used"]
+        kfold["Outer Group stratification used"]
+        == "No"
+    )
+    assert (
+        kfold["Inner Group stratification used"]
         == "No"
     )
     assert (
@@ -233,7 +237,13 @@ def test_preflight_reports_optional_group_toggle_and_actual_use():
     )
     assert (
         monte_carlo[
-            "Group stratification used"
+            "Outer Group stratification used"
+        ]
+        == "No"
+    )
+    assert (
+        monte_carlo[
+            "Inner Group stratification used"
         ]
         == "No"
     )
@@ -247,6 +257,10 @@ def test_preflight_reports_optional_group_toggle_and_actual_use():
         == "Required"
     )
     assert (
-        logo["Group stratification used"]
+        logo["Outer Group stratification used"]
+        == "Yes"
+    )
+    assert (
+        logo["Inner Group stratification used"]
         == "Yes"
     )

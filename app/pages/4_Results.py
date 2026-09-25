@@ -193,19 +193,22 @@ for result in results.values():
             {},
         )
         if "group_stratification_used" in split_info:
-            requested_text = (
+            group_setting = (
                 "Required"
                 if result["method"] == "logo"
                 else (
-                    "Yes"
-                    if split_info.get(
-                        "group_stratification_requested",
-                        False,
+                    "Enabled"
+                    if result.get(
+                        "config",
+                        {},
+                    ).get(
+                        "use_group_stratification",
+                        True,
                     )
-                    else "No"
+                    else "Disabled"
                 )
             )
-            used_text = (
+            outer_used = (
                 "Yes"
                 if split_info.get(
                     "group_stratification_used",
@@ -213,10 +216,18 @@ for result in results.values():
                 )
                 else "No"
             )
+            inner_used = (
+                "Yes"
+                if split_info.get(
+                    "inner_group_stratification_used",
+                    False,
+                )
+                else "No"
+            )
             st.caption(
-                "Group stratification requested: "
-                f"**{requested_text}** · used: "
-                f"**{used_text}**"
+                f"Group setting: **{group_setting}** · "
+                f"outer Group stratification used: **{outer_used}** · "
+                f"inner CV Group stratification used: **{inner_used}**"
             )
 
         tolerance_comparison = result.get(

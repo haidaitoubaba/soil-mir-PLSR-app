@@ -688,6 +688,9 @@ def test_kfold_group_toggle_can_force_sample_level_splitting():
     assert sample_info[
         "group_stratification_used"
     ] is False
+    assert sample_info[
+        "inner_group_stratification_used"
+    ] is False
     assert (
         sample_info["fallback_reason"]
         == "Group stratification disabled by configuration"
@@ -795,4 +798,7 @@ def test_logo_requires_group_even_when_optional_group_toggle_is_off():
     ] is True
     assert info[
         "group_stratification_used"
+    ] is True
+    assert info[
+        "inner_group_stratification_used"
     ] is True

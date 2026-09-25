@@ -689,7 +689,8 @@ def preflight_validation_methods(
                         )
                     ),
                     "Group stratification requested": group_request,
-                    "Group stratification used": "No",
+                    "Outer Group stratification used": "No",
+                    "Inner Group stratification used": "No",
                     "Outer splits": 0,
                     "Details": str(exc),
                 }
@@ -712,10 +713,18 @@ def preflight_validation_methods(
                         )
                     ),
                     "Group stratification requested": group_request,
-                    "Group stratification used": (
+                    "Outer Group stratification used": (
                         "Yes"
                         if split_info.get(
                             "group_stratification_used",
+                            False,
+                        )
+                        else "No"
+                    ),
+                    "Inner Group stratification used": (
+                        "Yes"
+                        if split_info.get(
+                            "inner_group_stratification_used",
                             False,
                         )
                         else "No"

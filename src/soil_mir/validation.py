@@ -435,13 +435,33 @@ def outer_splits(
             "two unique validation samples."
         )
 
+    inner_infos = []
     for number, (train, _) in enumerate(splits):
-        inner_split_info(
+        _, inner_info = inner_split_info(
             keys[train],
             labels[train],
             cfg,
             seed + number,
         )
+        inner_infos.append(inner_info)
+
+    info["inner_splitters"] = sorted(
+        {
+            str(details.get("splitter", ""))
+            for details in inner_infos
+            if details.get("splitter")
+        }
+    )
+    info["inner_group_stratification_used"] = any(
+        bool(
+            details.get(
+                "group_stratification_used",
+                details.get("splitter")
+                == "StratifiedGroupKFold",
+            )
+        )
+        for details in inner_infos
+    )
 
     return splits, info
 
