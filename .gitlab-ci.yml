@@ -1,110 +1,30 @@
-stages:
-  - validate
-  - quality
-  - package
-
-default:
-  interruptible: true
+include:
+  - local: "/.gitlab/ci/python-app.yml"
 
 variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-  PIP_DISABLE_PIP_VERSION_CHECK: "1"
-
-cache:
-  key: "python311-pip"
-  paths:
-    - .cache/pip/
-
-workflow:
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
-      when: never
-    - if: '$CI_COMMIT_BRANCH'
-    - if: '$CI_COMMIT_TAG'
-
-ci_config_check:
-  stage: validate
-  image: python:3.11-slim
-  rules:
-    - if: '$CI_COMMIT_TAG'
-      when: never
-    - when: on_success
-  script:
-    - python -m compileall -q src app tests scripts
-    - python -c 'import tomllib; config=tomllib.load(open("pyproject.toml","rb")); assert config["project"]["name"] == "soil-mir-app"; print("Project configuration is valid.")'
-    - python scripts/build_mac_release.py --check-only
-    - python scripts/build_windows_release.py --check-only
-    - bash -n run_app.command
-
-quality:
-  stage: quality
-  image: python:3.11-slim
-  rules:
-    - if: '$CI_COMMIT_TAG'
-      when: never
-    - when: on_success
-  before_script:
-    - python -m pip install -e ".[test,science]"
-  script:
-    - ruff check src app tests scripts
-    - pytest -q
-    - streamlit run app/Home.py --server.headless=true --server.port=8501 > /tmp/streamlit.log 2>&1 & echo $! > /tmp/streamlit.pid
-    - |
-      python - <<'PY'
-      import time
-      import urllib.request
-
-      deadline = time.time() + 30
-      last = None
-      while time.time() < deadline:
-          try:
-              with urllib.request.urlopen("http://127.0.0.1:8501/_stcore/health", timeout=2) as response:
-                  body = response.read().decode("utf-8", "replace")
-                  if response.status == 200 and "ok" in body.lower():
-                      print("Streamlit health check passed")
-                      raise SystemExit(0)
-          except Exception as exc:
-              last = exc
-              time.sleep(1)
-      raise SystemExit(f"Streamlit did not become healthy: {last}")
-      PY
-  after_script:
-    - if [ -f /tmp/streamlit.pid ]; then kill $(cat /tmp/streamlit.pid) || true; fi
-    - cat /tmp/streamlit.log || true
-
-mac_rc_bundle:
-  stage: package
-  image: python:3.11-slim
-  rules:
-    - if: '$CI_COMMIT_TAG'
-  script:
-    - release_label="$CI_COMMIT_TAG"
-    - python scripts/build_mac_release.py --label "$release_label" --commit "$CI_COMMIT_SHA"
-    - ls -lh dist/
-    - mkdir -p /tmp/soil-mir-rc-test
-    - tar -xzf dist/*.tar.gz -C /tmp/soil-mir-rc-test
-    - launcher="$(find /tmp/soil-mir-rc-test -name run_app.command -type f -print -quit)"
-    - test -n "$launcher"
-    - test -x "$launcher"
-  artifacts:
-    name: "soil-mir-mac-${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
-    paths:
-      - dist/*.tar.gz
-    expire_in: 30 days
-
-windows_rc_bundle:
-  stage: package
-  image: python:3.11-slim
-  rules:
-    - if: '$CI_COMMIT_TAG'
-  script:
-    - release_label="$CI_COMMIT_TAG"
-    - python scripts/build_windows_release.py --label "$release_label" --commit "$CI_COMMIT_SHA"
-    - ls -lh dist/
-    - python -m zipfile -t dist/*-windows.zip
-  artifacts:
-    name: "soil-mir-windows-${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
-    paths:
-      - dist/*-windows.zip
-    expire_in: 30 days
+  CI_PYTHON_VERSION: "3.11"
+  CI_INSTALL_CMD: 'python -m pip install -e ".[test,science]"'
+  CI_LINT_PATHS: "src app tests scripts"
+  CI_STREAMLIT_APP: "app/Home.py"
+  CI_EXTRA_VALIDATE_CMD: >-
+    python -c 'import tomllib; config=tomllib.load(open("pyproject.toml","rb")); assert config["project"]["name"] == "soil-mir-app"; print("Project configuration is valid.")' &&
+    python scripts/build_mac_release.py --check-only &&
+    python scripts/build_windows_release.py --check-only &&
+    bash -n run_app.command
+  CI_MAC_BUILD_CMD: >-
+    python scripts/build_mac_release.py --label "$CI_COMMIT_TAG" --commit "$CI_COMMIT_SHA"
+  CI_MAC_VERIFY_CMD: >-
+    ls -lh dist/ &&
+    rm -rf /tmp/soil-mir-rc-test &&
+    mkdir -p /tmp/soil-mir-rc-test &&
+    artifact="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)" &&
+    test -n "$artifact" &&
+    tar -xzf "$artifact" -C /tmp/soil-mir-rc-test &&
+    launcher="$(find /tmp/soil-mir-rc-test -name run_app.command -type f -print -quit)" &&
+    test -n "$launcher" &&
+    test -x "$launcher"
+  CI_WINDOWS_BUILD_CMD: >-
+    python scripts/build_windows_release.py --label "$CI_COMMIT_TAG" --commit "$CI_COMMIT_SHA"
+  CI_WINDOWS_VERIFY_CMD: >-
+    ls -lh dist/ &&
+    python -m zipfile -t dist/*-windows.zip
