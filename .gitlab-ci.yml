@@ -1,5 +1,7 @@
 include:
-  - local: "/.gitlab/ci/python-app.yml"
+  - project: "haidaitoubaba-group/ci-templates"
+    ref: "main"
+    file: "/python-app.yml"
 
 variables:
   CI_PYTHON_VERSION: "3.11"
