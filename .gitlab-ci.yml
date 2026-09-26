@@ -23,14 +23,13 @@ workflow:
     - if: '$CI_COMMIT_BRANCH'
     - if: '$CI_COMMIT_TAG'
 
-.python_test_job:
-  image: python:3.11-slim
-  before_script:
-    - python -m pip install -e ".[test,science]"
-
 ci_config_check:
   stage: validate
   image: python:3.11-slim
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - when: on_success
   script:
     - python -m compileall -q src app tests scripts
     - python -c 'import tomllib; config=tomllib.load(open("pyproject.toml","rb")); assert config["project"]["name"] == "soil-mir-app"; print("Project configuration is valid.")'
@@ -38,26 +37,18 @@ ci_config_check:
     - python scripts/build_windows_release.py --check-only
     - bash -n run_app.command
 
-lint:
+quality:
   stage: quality
   image: python:3.11-slim
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - when: on_success
   before_script:
-    - python -m pip install "ruff>=0.6"
+    - python -m pip install -e ".[test,science]"
   script:
     - ruff check src app tests scripts
-
-pytest:
-  extends: .python_test_job
-  stage: quality
-  script:
     - pytest -q
-
-streamlit_smoke:
-  stage: quality
-  image: python:3.11-slim
-  before_script:
-    - python -m pip install "streamlit>=1.39"
-  script:
     - streamlit run app/Home.py --server.headless=true --server.port=8501 > /tmp/streamlit.log 2>&1 & echo $! > /tmp/streamlit.pid
     - |
       python - <<'PY'
@@ -85,8 +76,10 @@ streamlit_smoke:
 mac_rc_bundle:
   stage: package
   image: python:3.11-slim
+  rules:
+    - if: '$CI_COMMIT_TAG'
   script:
-    - release_label="${CI_COMMIT_TAG:-rc-${CI_COMMIT_SHORT_SHA}}"
+    - release_label="$CI_COMMIT_TAG"
     - python scripts/build_mac_release.py --label "$release_label" --commit "$CI_COMMIT_SHA"
     - ls -lh dist/
     - mkdir -p /tmp/soil-mir-rc-test
@@ -99,17 +92,14 @@ mac_rc_bundle:
     paths:
       - dist/*.tar.gz
     expire_in: 30 days
-  rules:
-    - if: '$CI_COMMIT_TAG'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-
 
 windows_rc_bundle:
   stage: package
   image: python:3.11-slim
+  rules:
+    - if: '$CI_COMMIT_TAG'
   script:
-    - release_label="${CI_COMMIT_TAG:-rc-${CI_COMMIT_SHORT_SHA}}"
+    - release_label="$CI_COMMIT_TAG"
     - python scripts/build_windows_release.py --label "$release_label" --commit "$CI_COMMIT_SHA"
     - ls -lh dist/
     - python -m zipfile -t dist/*-windows.zip
@@ -118,7 +108,3 @@ windows_rc_bundle:
     paths:
       - dist/*-windows.zip
     expire_in: 30 days
-  rules:
-    - if: '$CI_COMMIT_TAG'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
