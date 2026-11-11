@@ -19,6 +19,7 @@ PROFILE_WIDGET_KEYS = {
     "soil_mir_tolerance": "cfg_tolerance",
     "soil_mir_sg_window": "cfg_sg_window",
     "soil_mir_sg_polyorder": "cfg_sg_polyorder",
+    "soil_mir_preprocessing_methods": "cfg_preprocessing_methods",
     "soil_mir_random_seed": "cfg_random_seed",
     "soil_mir_internal_cv_folds": "cfg_internal_cv_folds",
     "soil_mir_outer_cv_folds": "cfg_outer_cv_folds",
@@ -43,6 +44,8 @@ def profile_widget_updates(
         value = settings[config_key]
         if config_key == "soil_mir_wn_range":
             value = tuple(value)
+        if config_key == "soil_mir_preprocessing_methods":
+            value = list(value)
         updates[widget_key] = value
 
     ranges = settings.get(

@@ -80,6 +80,7 @@ def test_profile_widget_updates_restore_all_saved_controls():
         "soil_mir_tolerance": 2.5,
         "soil_mir_sg_window": 9,
         "soil_mir_sg_polyorder": 2,
+        "soil_mir_preprocessing_methods": ["Raw Spectra", "2nd Derivative"],
         "soil_mir_random_seed": 77,
         "soil_mir_internal_cv_folds": 8,
         "soil_mir_outer_cv_folds": 4,
@@ -105,6 +106,7 @@ def test_profile_widget_updates_restore_all_saved_controls():
     assert updates["cfg_selected_properties"] == ["202_STC"]
     assert updates["cfg_wn_range"] == (650, 3950)
     assert updates["cfg_max_rank"] == 9
+    assert updates["cfg_preprocessing_methods"] == ["Raw Spectra", "2nd Derivative"]
     assert updates["cfg_use_group_stratification"] is False
     assert updates["cfg_region_windows"] == 5
     assert updates["cfg_internal_cv_folds"] == 8

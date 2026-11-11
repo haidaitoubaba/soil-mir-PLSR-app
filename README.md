@@ -39,6 +39,14 @@ Parsed OPUS spectra are cached locally using file size and modification-time sig
 files can therefore be reused across STC/STN analyses without bypassing any property-specific
 filtering, preprocessing, model selection, or validation.
 
+The PLSR preprocessing search supports 11 selectable methods: the four legacy
+first-derivative methods, Raw Spectra, SNV, MSC, SG Smoothing, Second Derivative,
+Second Derivative + SNV, and Second Derivative + MSC. Legacy profiles and
+saved runs continue to search the original four methods until other options
+are explicitly selected. Savitzky-Golay settings apply to smoothing and both
+derivative orders; SG operations are performed separately per contiguous
+spectral interval. Each MSC reference is fitted on calibration rows only.
+
 Outer validation splits can run in parallel using the legacy-compatible default of four shared-memory
 workers while numerical libraries inside each worker are limited to one thread. This avoids nested
 BLAS/OpenMP oversubscription while preserving deterministic split seeds and result ordering.
