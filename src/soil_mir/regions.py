@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from soil_mir.preprocessing import NO_SG_METHODS, configured_preprocessing_methods
 from soil_mir.io.opus import validate_wavenumbers
 
 
@@ -64,6 +65,11 @@ def automatic_region_definitions(cfg: dict, axis: np.ndarray) -> tuple[dict, lis
 
 def prepare_region_config(cfg: dict, wavenumbers: np.ndarray) -> dict:
     axis = validate_wavenumbers(wavenumbers)
+    methods = configured_preprocessing_methods(cfg)
+    # Raw, SNV and MSC do not require a Savitzky-Golay window.
+    required_width = (
+        1 if all(method in NO_SG_METHODS for method in methods) else cfg["sg_window"]
+    )
     automatic, windows = automatic_region_definitions(cfg, axis)
     definitions = {"Full range": [(cfg["wn_min"], cfg["wn_max"])], **automatic}
     regions = {}
@@ -95,8 +101,8 @@ def prepare_region_config(cfg: dict, wavenumbers: np.ndarray) -> dict:
         description = "; ".join(f"{a:.6f}–{b:.6f}" for a, b in actual) or "No retained points"
         reason = (
             ""
-            if lengths and min(lengths) >= cfg["sg_window"]
-            else "An included interval has fewer points than sg_window."
+            if lengths and min(lengths) >= required_width
+            else "An included interval has fewer points than the preprocessing window."
         )
         regions[name] = {
             "indices": indices,
