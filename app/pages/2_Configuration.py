@@ -8,6 +8,11 @@ from soil_mir.config import (
     SpectralConfig,
     ValidationConfig,
 )
+from soil_mir.preprocessing import (
+    LEGACY_PREPROCESSING_NAMES,
+    PREPROCESSING_NAMES,
+    configured_preprocessing_methods,
+)
 from soil_mir.methods import (
     VALIDATION_METHOD_LABELS,
     validation_method_description,
@@ -108,6 +113,10 @@ _initialize_widget_state(
     11,
 )
 _initialize_widget_state(
+    "soil_mir_preprocessing_methods",
+    list(LEGACY_PREPROCESSING_NAMES),
+)
+_initialize_widget_state(
     "soil_mir_sg_polyorder",
     2,
 )
@@ -159,6 +168,7 @@ PROFILE_SESSION_KEYS = {
     "soil_mir_tolerance",
     "soil_mir_sg_window",
     "soil_mir_sg_polyorder",
+    "soil_mir_preprocessing_methods",
     "soil_mir_random_seed",
     "soil_mir_internal_cv_folds",
     "soil_mir_outer_cv_folds",
@@ -223,6 +233,11 @@ if output_dir:
                                     "soil_mir_wn_range"
                                 ]
                             )
+                        # Older profiles reproduce the original four-method search.
+                        allowed.setdefault(
+                            "soil_mir_preprocessing_methods",
+                            list(LEGACY_PREPROCESSING_NAMES),
+                        )
                         st.session_state.update(
                             allowed
                         )
@@ -502,6 +517,22 @@ with validation_right:
         ),
     )
 
+st.subheader("PLSR preprocessing candidates")
+preprocessing_methods = st.multiselect(
+    "Preprocessing methods to compare",
+    list(PREPROCESSING_NAMES),
+    key=PROFILE_WIDGET_KEYS["soil_mir_preprocessing_methods"],
+    help=(
+        "Nested model selection compares every selected method. "
+        "All 11 methods are available; the original four are selected by default "
+        "to preserve earlier workloads. More methods increase run time."
+    ),
+)
+st.caption(
+    f"{len(preprocessing_methods)} of {len(PREPROCESSING_NAMES)} candidates selected. "
+    "SG smoothing and derivatives operate separately within each spectral interval."
+)
+
 with st.expander("Advanced spectral settings"):
     sg_window = st.number_input(
         "Savitzky–Golay window",
@@ -655,6 +686,7 @@ def current_values() -> dict:
         "soil_mir_tolerance": float(tolerance),
         "soil_mir_sg_window": int(sg_window),
         "soil_mir_sg_polyorder": int(sg_polyorder),
+        "soil_mir_preprocessing_methods": list(preprocessing_methods),
         "soil_mir_random_seed": int(random_seed),
         "soil_mir_internal_cv_folds": int(internal_cv_folds),
         "soil_mir_outer_cv_folds": int(outer_cv_folds),
@@ -686,6 +718,12 @@ def validate_current_configuration() -> dict:
         random_seed=int(random_seed),
     )
     spectral.validate()
+    configured_preprocessing_methods(
+        {
+            "preprocessing_methods": list(preprocessing_methods),
+            "sg_polyorder": int(sg_polyorder),
+        }
+    )
     validation.validate()
 
     if not selected_properties:

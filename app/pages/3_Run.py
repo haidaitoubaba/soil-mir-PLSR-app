@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from soil_mir.preprocessing import LEGACY_PREPROCESSING_NAMES
 from soil_mir.reporting import (
     read_run_manifest,
 )
@@ -81,6 +82,12 @@ def analysis_settings() -> dict:
         ),
         "sg_polyorder": int(
             st.session_state["soil_mir_sg_polyorder"]
+        ),
+        "preprocessing_methods": list(
+            st.session_state.get(
+                "soil_mir_preprocessing_methods",
+                LEGACY_PREPROCESSING_NAMES,
+            )
         ),
         "random_seed": int(
             st.session_state["soil_mir_random_seed"]
@@ -172,6 +179,11 @@ st.write(
         )
         for method in methods
     )
+    + "**"
+)
+st.write(
+    "Preprocessing methods: **"
+    + ", ".join(settings["preprocessing_methods"])
     + "**"
 )
 st.write(

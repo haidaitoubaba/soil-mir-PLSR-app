@@ -10,12 +10,13 @@ from sklearn.cross_decomposition import PLSRegression
 from soil_mir.io.opus import resample_spectrum, validate_wavenumbers
 from soil_mir.metrics import grouped_metric_state, regression_metrics
 from soil_mir.preprocessing import (
-    PREPROCESSING_NAMES,
+    LEGACY_PREPROCESSING_NAMES,
     _postprocess_derivative,
+    configured_preprocessing_methods,
     fit_transform_preprocessor,
     preprocessor_state,
     segment_slices,
-    spectral_derivative,
+    spectral_preprocessing_base,
     transform_preprocessor,
 )
 from soil_mir.regions import (
@@ -35,26 +36,28 @@ def build_cv_preprocessing_cache(
     cfg: dict,
     derivative: np.ndarray | None = None,
 ) -> list[dict]:
-    if derivative is None:
-        derivative = spectral_derivative(X, cfg)
+    if derivative is not None and prep_name in LEGACY_PREPROCESSING_NAMES:
+        base = derivative  # Retain the legacy precomputed-derivative interface.
+    else:
+        base = spectral_preprocessing_base(prep_name, X, cfg)
 
     fold_cache = []
     for train_idx, test_idx in splits:
-        train_derivative = derivative[train_idx]
-        fitted = preprocessor_state(prep_name, train_derivative, cfg)
+        train_base = base[train_idx]
+        fitted = preprocessor_state(prep_name, train_base, cfg)
         fold_cache.append(
             {
                 "train_idx": train_idx,
                 "test_idx": test_idx,
                 "X_train_prep": _postprocess_derivative(
                     prep_name,
-                    train_derivative,
+                    train_base,
                     fitted["msc_reference"],
                     fitted["segment_lengths"],
                 ),
                 "X_test_prep": _postprocess_derivative(
                     prep_name,
-                    derivative[test_idx],
+                    base[test_idx],
                     fitted["msc_reference"],
                     fitted["segment_lengths"],
                 ),
@@ -251,7 +254,7 @@ def optimize_plsr_grouped(
     )
     maximum_rank = int(cfg["max_rank"])
 
-    for prep in PREPROCESSING_NAMES:
+    for prep in configured_preprocessing_methods(cfg):
         evaluated = {}
 
         def evaluate(chosen):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from soil_mir.preprocessing import LEGACY_PREPROCESSING_NAMES
 from soil_mir.reporting import (
     export_final_refit,
     record_final_refit,
@@ -183,6 +184,9 @@ def refit_saved_run_tolerance(
             settings[
                 "sg_polyorder"
             ]
+        ),
+        preprocessing_methods=list(
+            settings.get("preprocessing_methods", LEGACY_PREPROCESSING_NAMES)
         ),
         random_seed=int(
             settings["random_seed"]

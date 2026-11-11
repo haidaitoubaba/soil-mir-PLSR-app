@@ -176,3 +176,58 @@ def test_final_calibration_bundle_is_self_consistent():
     assert bundle["selected_calibration_rmsecv"] == pytest.approx(
         best["RMSECV"]
     )
+
+
+
+def test_optimizer_searches_explicit_new_preprocessing_candidates():
+    X, y, keys, labels, axis = _dataset()
+    cfg = _config(axis)
+    cfg.update(
+        {
+            "preprocessing_methods": [
+                "Raw Spectra",
+                "SNV",
+                "MSC",
+                "SG Smoothing",
+                "2nd Derivative",
+                "2nd Deriv + SNV",
+                "2nd Deriv + MSC",
+            ],
+            "region_search_n_windows": 1,
+            "max_rank": 1,
+        }
+    )
+    cfg = prepare_region_config(cfg, axis)
+    y_t, lam = apply_transform(y, "sqrt")
+    search, best = optimize_plsr_grouped(
+        X, y_t, y, keys, labels, cfg, "sqrt", lam, 42
+    )
+    assert set(search["Preprocessing"]) == set(cfg["preprocessing_methods"])
+    assert best["Preprocessing"] in cfg["preprocessing_methods"]
+    assert search["Selected"].sum() == 1
+
+    model, _, _, _ = fit_calibration_model(
+        X, y, keys, axis, cfg, labels
+    )
+    assert model["selected_preprocessing"] in cfg["preprocessing_methods"]
+    np.testing.assert_array_equal(
+        predict_model_bundle(model, X, axis).shape, y.shape
+    )
+
+
+@pytest.mark.parametrize("name", ["Raw Spectra", "SG Smoothing", "2nd Deriv + MSC"])
+def test_new_preprocessing_can_fit_and_predict_from_model_bundle(name):
+    X, y, keys, labels, axis = _dataset()
+    cfg = _config(axis)
+    cfg.update({
+        "preprocessing_methods": [name],
+        "region_search_n_windows": 1,
+        "max_rank": 1,
+    })
+    cfg = prepare_region_config(cfg, axis)
+    model, best, _, _ = fit_calibration_model(X, y, keys, axis, cfg, labels)
+    assert best["Preprocessing"] == name
+    assert model["preprocessing_state"]["name"] == name
+    predicted = predict_model_bundle(model, X, axis)
+    assert predicted.shape == y.shape
+    assert np.isfinite(predicted).all()

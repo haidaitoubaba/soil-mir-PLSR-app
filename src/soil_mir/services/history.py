@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from soil_mir.preprocessing import LEGACY_PREPROCESSING_NAMES
 from soil_mir.methods import (
     validation_method_label,
 )
@@ -297,6 +298,7 @@ def run_config_session_values(
         "rmsecv_tolerance_pct": "soil_mir_tolerance",
         "sg_window": "soil_mir_sg_window",
         "sg_polyorder": "soil_mir_sg_polyorder",
+        "preprocessing_methods": "soil_mir_preprocessing_methods",
         "random_seed": "soil_mir_random_seed",
         "internal_cv_folds": "soil_mir_internal_cv_folds",
         "outer_cv_folds": "soil_mir_outer_cv_folds",
@@ -340,6 +342,10 @@ def run_config_session_values(
     for source, target in mapping.items():
         if source in settings:
             values[target] = settings[source]
+    values.setdefault(
+        "soil_mir_preprocessing_methods",
+        list(LEGACY_PREPROCESSING_NAMES),
+    )
 
     if (
         "wn_min" in settings

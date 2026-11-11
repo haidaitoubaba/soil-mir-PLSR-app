@@ -351,6 +351,7 @@ def run_validation_analysis(
     ks_pca_variance: float,
     wn_min: float,
     wn_max: float,
+    preprocessing_methods: list[str] | tuple[str, ...] | None = None,
     outer_n_jobs: int = 1,
     inner_thread_limit: int | None = 1,
     use_group_stratification: bool = True,
@@ -365,6 +366,11 @@ def run_validation_analysis(
         "co2_exclude_max": 2400.0,
         "sg_window": int(sg_window),
         "sg_polyorder": int(sg_polyorder),
+        **(
+            {"preprocessing_methods": list(preprocessing_methods)}
+            if preprocessing_methods is not None
+            else {}
+        ),
         "max_rank": int(max_rank),
         "region_search_n_windows": int(region_search_n_windows),
         "rmsecv_tolerance_pct": float(rmsecv_tolerance_pct),
@@ -443,6 +449,7 @@ def refit_final_model_only(
     ks_pca_variance: float,
     wn_min: float,
     wn_max: float,
+    preprocessing_methods: list[str] | tuple[str, ...] | None = None,
     outer_n_jobs: int = 1,
     inner_thread_limit: int | None = 1,
     use_group_stratification: bool = True,
@@ -461,6 +468,11 @@ def refit_final_model_only(
         "co2_exclude_max": 2400.0,
         "sg_window": int(sg_window),
         "sg_polyorder": int(sg_polyorder),
+        **(
+            {"preprocessing_methods": list(preprocessing_methods)}
+            if preprocessing_methods is not None
+            else {}
+        ),
         "max_rank": int(max_rank),
         "region_search_n_windows": int(
             region_search_n_windows
@@ -578,6 +590,7 @@ def preflight_validation_methods(
     ks_pca_variance: float,
     wn_min: float,
     wn_max: float,
+    preprocessing_methods: list[str] | tuple[str, ...] | None = None,
     outer_n_jobs: int = 1,
     inner_thread_limit: int | None = 1,
     use_group_stratification: bool = True,
@@ -609,6 +622,11 @@ def preflight_validation_methods(
             "co2_exclude_max": 2400.0,
             "sg_window": int(sg_window),
             "sg_polyorder": int(sg_polyorder),
+            **(
+                {"preprocessing_methods": list(preprocessing_methods)}
+                if preprocessing_methods is not None
+                else {}
+            ),
             "max_rank": int(max_rank),
             "region_search_n_windows": int(
                 region_search_n_windows
