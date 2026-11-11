@@ -117,8 +117,9 @@ def spectral_preprocessing_base(prep_name: str, X: np.ndarray, cfg: dict) -> np.
     poly = int(cfg["sg_polyorder"])
     if min(lengths) < window:
         raise ValueError("Every included interval must fit the Savitzky-Golay window.")
-    if poly < order:
-        raise ValueError(f"{prep_name} requires SG polynomial order >= {order}.")
+    # Preserve legacy first-derivative behavior for polynomial order 0.
+    if order == 2 and poly < 2:
+        raise ValueError(f"{prep_name} requires SG polynomial order >= 2.")
     return np.concatenate(
         [
             savgol_filter(

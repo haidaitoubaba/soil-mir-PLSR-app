@@ -178,3 +178,17 @@ def test_invalid_candidate_selection_and_second_derivative_parameters(spectra):
             spectra,
             {"sg_window": 7, "sg_polyorder": 1},
         )
+
+
+def test_legacy_first_derivative_accepts_existing_polyorder_zero(spectra):
+    # Older saved projects can contain polynomial order 0.
+    cfg = {"sg_window": 7, "sg_polyorder": 0, "_segment_lengths": [24, 24]}
+    _, fitted = fit_transform_preprocessor("1st Derivative", spectra, cfg)
+    expected = np.concatenate(
+        [
+            savgol_filter(spectra[:, interval], 7, 0, deriv=1, axis=1)
+            for interval in (slice(0, 24), slice(24, 48))
+        ],
+        axis=1,
+    )
+    np.testing.assert_array_equal(fitted, expected)
