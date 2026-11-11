@@ -226,3 +226,33 @@ def test_resume_manifest_preserves_completed_results(
     assert resumed["status"] == "running"
     assert len(resumed["results"]) == 1
     assert "finished_at" not in resumed
+
+
+def test_run_manifest_records_new_performance_metrics(tmp_path: Path):
+    run_dir = tmp_path / "20261111_120000_000000"
+    run_dir.mkdir()
+    initialize_run_manifest(
+        run_dir,
+        properties=["202_STC"],
+        methods=["kfold"],
+        spectra_dir="/data/spectra",
+        reference_excel="/data/reference.xlsx",
+    )
+    result = _result()
+    result["summary"] = pd.concat(
+        [
+            result["summary"],
+            pd.DataFrame(
+                {
+                    "Metric": ["RPD", "MAE", "CCC"],
+                    "Value": [2.5, 0.3, 0.91],
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+    record_run_result(run_dir, result, {})
+    manifest = read_run_manifest(run_dir)
+    assert manifest["results"][0]["metrics"]["RPD"] == 2.5
+    assert manifest["results"][0]["metrics"]["MAE"] == 0.3
+    assert manifest["results"][0]["metrics"]["CCC"] == 0.91

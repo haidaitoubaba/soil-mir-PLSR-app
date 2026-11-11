@@ -586,9 +586,9 @@ def export_validation_comparison(
                 "RMSE": float(summary.loc["RMSE", "Value"]),
                 "RPIQ": float(summary.loc["RPIQ", "Value"]),
                 "Bias": float(summary.loc["Bias", "Value"]),
-                "RPD": float(summary.loc["RPD", "Value"]),
-                "MAE": float(summary.loc["MAE", "Value"]),
-                "CCC": float(summary.loc["CCC", "Value"]),
+                "RPD": float(summary["Value"].get("RPD", float("nan"))),
+                "MAE": float(summary["Value"].get("MAE", float("nan"))),
+                "CCC": float(summary["Value"].get("CCC", float("nan"))),
                 "Final Preprocessing": settings["Preprocessing"],
                 "Final Region": settings["Region"],
                 "Final Rank": int(settings["Rank"]),
@@ -667,6 +667,7 @@ def record_run_result(
         "metrics": {
             metric: float(summary.loc[metric, "Value"])
             for metric in ("R2", "RMSE", "RPIQ", "Bias", "RPD", "MAE", "CCC")
+            if metric in summary.index
         },
         "final_model": {
             "preprocessing": final_settings["Preprocessing"],
