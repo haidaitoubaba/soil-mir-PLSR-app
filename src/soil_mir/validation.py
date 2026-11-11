@@ -621,6 +621,9 @@ def summarize_validation(
             "RMSE",
             "RPIQ",
             "Bias",
+            "RPD",
+            "MAE",
+            "CCC",
         ):
             values = folds[
                 f"Validation {metric}"

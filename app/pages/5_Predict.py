@@ -535,26 +535,24 @@ if result:
         and "Measured" in sample_predictions.columns
     ):
         st.subheader("External validation")
-        metric_cols = st.columns(6)
-        for column, key in zip(
-            metric_cols,
-            [
-                "R2",
-                "RMSE",
-                "RPIQ",
-                "Bias",
-                "Samples",
-                "Spectra",
-            ],
-        ):
-            value = metrics.get(key, "")
-            if isinstance(value, float):
-                column.metric(
-                    key,
-                    f"{value:.4g}",
-                )
-            else:
-                column.metric(key, value)
+        metric_rows = (
+            ("R2", "RMSE", "RPIQ", "Bias"),
+            ("RPD", "MAE", "CCC", "Samples", "Spectra"),
+        )
+        for metric_row in metric_rows:
+            for column, key in zip(
+                st.columns(len(metric_row)),
+                metric_row,
+            ):
+                value = metrics.get(key, "")
+                label = "R²" if key == "R2" else key
+                if isinstance(value, float):
+                    column.metric(
+                        label,
+                        f"{value:.4g}",
+                    )
+                else:
+                    column.metric(label, value)
 
         chart_frame = sample_predictions[
             ["Measured", "Predicted"]

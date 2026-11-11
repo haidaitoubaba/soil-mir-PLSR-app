@@ -142,6 +142,9 @@ def test_nested_kfold_validation_covers_every_sample():
         "RMSE",
         "RPIQ",
         "Bias",
+        "RPD",
+        "MAE",
+        "CCC",
     }
     assert result["final_model"][
         "training_sample_count"
@@ -453,6 +456,9 @@ def test_monte_carlo_end_to_end_uses_repeat_summary():
         "RMSE",
         "RPIQ",
         "Bias",
+        "RPD",
+        "MAE",
+        "CCC",
     }
     assert {
         "SD",

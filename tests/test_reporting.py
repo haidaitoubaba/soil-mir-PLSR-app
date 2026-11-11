@@ -27,8 +27,8 @@ def _result():
         "method": "kfold",
         "summary": pd.DataFrame(
             {
-                "Metric": ["R2", "RMSE", "RPIQ", "Bias"],
-                "Value": [0.8, 0.5, 2.1, -0.02],
+                "Metric": ["R2", "RMSE", "RPIQ", "Bias", "RPD", "MAE", "CCC"],
+                "Value": [0.8, 0.5, 2.1, -0.02, 2.4, 0.4, 0.89],
             }
         ),
         "folds": pd.DataFrame(
@@ -126,6 +126,8 @@ def test_export_validation_result(tmp_path: Path):
 
     workbook = pd.ExcelFile(artifacts["workbook"])
     assert "Summary" in workbook.sheet_names
+    summary = pd.read_excel(artifacts["workbook"], sheet_name="Summary")
+    assert {"RPD", "MAE", "CCC"} <= set(summary["Metric"])
     assert "Validation Predictions" in workbook.sheet_names
     assert "Final Model Selection" in workbook.sheet_names
     assert "Tolerance Comparison" in workbook.sheet_names
@@ -160,6 +162,9 @@ def test_export_validation_comparison(tmp_path: Path):
     assert frame.loc[0, "Property"] == "202_STC"
     assert frame.loc[0, "Method"] == "kfold"
     assert frame.loc[0, "R2"] == 0.8
+    assert frame.loc[0, "RPD"] == 2.4
+    assert frame.loc[0, "MAE"] == 0.4
+    assert frame.loc[0, "CCC"] == 0.89
 
 
 

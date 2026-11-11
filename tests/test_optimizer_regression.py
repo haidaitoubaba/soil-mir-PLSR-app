@@ -125,6 +125,7 @@ def test_backward_region_optimizer_matches_legacy():
         "RPIQ_CV",
         "Bias_CV",
     ]
+    assert {"RPD_CV", "MAE_CV", "CCC_CV"} <= set(actual_frame.columns)
     np.testing.assert_allclose(
         actual_frame[numeric].to_numpy(dtype=float),
         expected_frame[numeric].to_numpy(dtype=float),
