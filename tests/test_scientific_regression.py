@@ -98,7 +98,10 @@ def test_metrics_match_legacy_on_stc_like_values():
     predicted = np.array([2.6, 3.0, 5.5, 9.2, 11.8, 15.1])
     expected = legacy_regression_metrics(measured, predicted)
     actual = regression_metrics(measured, predicted)
-    assert actual == pytest.approx(expected, rel=1e-14, abs=1e-14)
+    assert {
+        name: actual[name] for name in expected
+    } == pytest.approx(expected, rel=1e-14, abs=1e-14)
+    assert {"RPD", "MAE", "CCC"} <= actual.keys()
 
 
 def test_rank_tolerance_rule_matches_legacy():

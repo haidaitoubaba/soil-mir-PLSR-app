@@ -298,6 +298,9 @@ def optimize_plsr_grouped(
                     "R2_CV": np.nan,
                     "RPIQ_CV": np.nan,
                     "Bias_CV": np.nan,
+                    "RPD_CV": np.nan,
+                    "MAE_CV": np.nan,
+                    "CCC_CV": np.nan,
                     "Status": "Failed",
                     "Error": error,
                 }
@@ -307,6 +310,9 @@ def optimize_plsr_grouped(
                         R2_CV=metrics["R2"],
                         RPIQ_CV=metrics["RPIQ"],
                         Bias_CV=metrics["Bias"],
+                        RPD_CV=metrics["RPD"],
+                        MAE_CV=metrics["MAE"],
+                        CCC_CV=metrics["CCC"],
                         Status="Success",
                     )
                     scores.append(metrics["RMSE"])

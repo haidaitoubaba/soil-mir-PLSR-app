@@ -165,6 +165,9 @@ def test_external_prediction_uses_reference_order_and_sample_mapping(
     assert metrics["Samples"] == 2
     assert metrics["Spectra"] == 3
     assert metrics["RMSE"] == pytest.approx(0.0)
+    assert metrics["RPD"] == float("inf")
+    assert metrics["MAE"] == pytest.approx(0.0)
+    assert metrics["CCC"] == pytest.approx(1.0)
 
 
 def test_prediction_without_reference_treats_each_file_as_sample(
@@ -280,6 +283,9 @@ def test_prediction_workbook_matches_authoritative_sheet_layout(
         "RMSE": 0.0,
         "RPIQ": 1.0,
         "Bias": 0.0,
+        "RPD": float("nan"),
+        "MAE": 0.0,
+        "CCC": float("nan"),
         "Samples": 1,
         "Spectra": 2,
     }

@@ -112,6 +112,15 @@ for result in results.values():
             "Bias": float(
                 summary.loc["Bias", "Value"]
             ),
+            "RPD": float(
+                summary["Value"].get("RPD", float("nan"))
+            ),
+            "MAE": float(
+                summary["Value"].get("MAE", float("nan"))
+            ),
+            "CCC": float(
+                summary["Value"].get("CCC", float("nan"))
+            ),
             "Final preprocessing": (
                 final_settings[
                     "Preprocessing"
@@ -178,6 +187,21 @@ for result in results.values():
             "Bias",
             f"{summary.loc['Bias', 'Value']:.4g}",
         )
+        # Older saved runs only contain the original four metrics.
+        extra_metrics = (
+            ("RPD", ".3f"),
+            ("MAE", ".4g"),
+            ("CCC", ".3f"),
+        )
+        for column, (metric, precision) in zip(
+            st.columns(3),
+            extra_metrics,
+        ):
+            value = summary["Value"].get(metric, float("nan"))
+            column.metric(
+                metric,
+                f"{value:{precision}}" if pd.notna(value) else "N/A",
+            )
 
         final_settings = result[
             "final_settings"

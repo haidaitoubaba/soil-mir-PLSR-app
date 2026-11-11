@@ -77,11 +77,13 @@ def test_pls_rank_path_matches_legacy():
 
     expected_frame = pd.DataFrame([metrics for metrics, _ in expected_results])
     actual_frame = pd.DataFrame([metrics for metrics, _ in actual_results])
+    # Legacy comparisons still apply to the original four metrics.
     np.testing.assert_allclose(
-        actual_frame.to_numpy(dtype=float),
+        actual_frame[expected_frame.columns].to_numpy(dtype=float),
         expected_frame.to_numpy(dtype=float),
         rtol=1e-12,
         atol=1e-12,
         equal_nan=True,
     )
+    assert {"RPD", "MAE", "CCC"} <= set(actual_frame.columns)
     assert [error for _, error in actual_results] == [error for _, error in expected_results]

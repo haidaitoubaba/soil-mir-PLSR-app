@@ -25,7 +25,12 @@ script. Covered behavior includes response transforms, derivative/SLS/SNV/MSC pr
 group-aware splitting, PLS rank paths, RMSECV tolerance selection, backward spectral-region
 optimization, final model fitting, external prediction, and nested validation.
 
-Validation metrics shown in Results come from outer predictions. The final exported model is
+Validation metrics shown in Results are R², RMSE, RPIQ, Bias, RPD, MAE, and
+Lin's CCC, calculated from sample-level outer predictions. RPD uses the sample
+standard deviation (ddof=1) of measured values divided by RMSE, and MAE and CCC
+are computed on the original response scale. The same seven metrics are reported
+for external validation. Undefined RPD/CCC values are shown as N/A.
+For older saved runs, new metrics are not backfilled until validation is rerun. The final exported model is
 selected and refit separately using all eligible calibration samples.
 
 ## Local performance and persistence
