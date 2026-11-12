@@ -27,3 +27,28 @@ variables:
   CI_WINDOWS_VERIFY_CMD: >-
     ls -lh dist/ &&
     python -m zipfile -t dist/*-windows.zip
+
+# One-time publication of v0.2.3 to GitLab Releases.
+# Published distribution archives are the already-verified recovery artifacts,
+# and the existing annotated release tag is not changed.
+v023_publish_gitlab_release:
+  stage: package
+  image: "registry.gitlab.com/gitlab-org/cli:latest"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "release/v0.2.3-publish-gitlab"'
+      when: on_success
+  script:
+    - test -f RELEASE_NOTES_v0.2.3.md
+    - echo "Publishing the existing v0.2.3 tag as a GitLab release"
+  release:
+    tag_name: "v0.2.3"
+    name: "Soil MIR PLSR v0.2.3"
+    description: "./RELEASE_NOTES_v0.2.3.md"
+    assets:
+      links:
+        - name: "Soil MIR v0.2.3 for macOS"
+          url: "https://gitlab.com/haidaitoubaba-group/soil-mir-plsr-app/-/jobs/17953891317/artifacts/raw/dist/soil-mir-app-v0.2.3-mac.tar.gz"
+          link_type: package
+        - name: "Soil MIR v0.2.3 for Windows"
+          url: "https://gitlab.com/haidaitoubaba-group/soil-mir-plsr-app/-/jobs/17953891318/artifacts/raw/dist/soil-mir-app-v0.2.3-windows.zip"
+          link_type: package
