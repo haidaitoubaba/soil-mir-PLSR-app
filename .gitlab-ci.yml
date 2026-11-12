@@ -27,3 +27,40 @@ variables:
   CI_WINDOWS_VERIFY_CMD: >-
     ls -lh dist/ &&
     python -m zipfile -t dist/*-windows.zip
+
+# Temporary one-off recovery packages for the immutable v0.2.3 tag.
+# The v0.2.3 checkout and main differ only in .gitlab-ci.yml,
+# which is intentionally excluded from all distribution archives.
+# Do not merge these jobs into main; normal releases remain tag-only.
+v023_recovery_mac:
+  stage: package
+  image: "python:3.11-slim"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "release/v0.2.3-recovery"'
+      when: on_success
+  script:
+    - python scripts/build_mac_release.py --label v0.2.3 --commit be6890db9a7266cb8a615553d56b78b3892936c4
+    - mkdir -p /tmp/soil-mir-v023-mac
+    - tar -xzf dist/soil-mir-app-v0.2.3-mac.tar.gz -C /tmp/soil-mir-v023-mac
+    - test -x /tmp/soil-mir-v023-mac/soil-mir-app-v0.2.3/run_app.command
+    - grep -qx "commit=be6890db9a7266cb8a615553d56b78b3892936c4" /tmp/soil-mir-v023-mac/soil-mir-app-v0.2.3/BUILD_INFO.txt
+    - sha256sum dist/soil-mir-app-v0.2.3-mac.tar.gz
+  artifacts:
+    paths:
+      - dist/soil-mir-app-v0.2.3-mac.tar.gz
+    expire_in: 90 days
+
+v023_recovery_windows:
+  stage: package
+  image: "python:3.11-slim"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "release/v0.2.3-recovery"'
+      when: on_success
+  script:
+    - python scripts/build_windows_release.py --label v0.2.3 --commit be6890db9a7266cb8a615553d56b78b3892936c4
+    - python -m zipfile -t dist/soil-mir-app-v0.2.3-windows.zip
+    - sha256sum dist/soil-mir-app-v0.2.3-windows.zip
+  artifacts:
+    paths:
+      - dist/soil-mir-app-v0.2.3-windows.zip
+    expire_in: 90 days
