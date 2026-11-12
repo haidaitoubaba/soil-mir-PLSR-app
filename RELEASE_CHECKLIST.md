@@ -1,12 +1,16 @@
-# macOS v0.2.2 Release Candidate Checklist
+# macOS v0.2.3 Release Candidate Checklist
 
-This checklist validates the macOS distribution for the cross-platform v0.2.2 release. Do not add
+This checklist validates the macOS distribution for the cross-platform v0.2.3 release. Do not add
 product features while completing it.
 
 ## Automated release gate
 
-- [ ] `pyproject.toml` and `src/soil_mir/__init__.py` both report `0.2.2`.
+- [ ] `pyproject.toml` and `src/soil_mir/__init__.py` both report `0.2.3`.
 - [ ] GitLab `ci_config_check` passes.
+- [ ] All 11 preprocessing methods appear in Configuration; all four legacy
+      methods remain selected by default.
+- [ ] New RPD, MAE and CCC columns/summary metrics appear in Results and Predict.
+- [ ] At least one second-derivative model can be saved and reused for prediction.
 - [ ] GitLab `lint` passes.
 - [ ] GitLab `pytest` passes, including scientific regression tests.
 - [ ] GitLab `streamlit_smoke` passes.
@@ -41,4 +45,4 @@ loses/corrupts saved work, or breaks the core Data -> Configuration -> Run -> Re
 workflow.
 
 The macOS distribution remains local-first and Python-based. It requires Python 3.10+ and
-first-launch internet access. A signed/notarized standalone macOS `.app` is not part of v0.2.2.
+first-launch internet access. A signed/notarized standalone macOS `.app` is not part of v0.2.3.

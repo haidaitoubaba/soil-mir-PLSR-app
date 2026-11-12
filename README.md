@@ -84,35 +84,35 @@ All repository builds, dependency installation for development, linting, scienti
 startup smoke tests are automated in GitLab CI.
 
 
-## v0.2.2 cross-platform release candidate
+## v0.2.3 cross-platform release
 
-The repository version is `0.2.2`. This patch release adds explicit control over optional
-`Group` stratification and safer Run History cleanup while preserving v0.2.1 behavior by default.
+Version `0.2.3` adds three complementary model performance metrics and seven additional
+PLSR preprocessing candidates while preserving existing validation designs and saved
+model compatibility.
 
-Key changes include:
+- **Metrics**: RPD, MAE and Lin's Concordance Correlation Coefficient (CCC) join
+  R², RMSE, RPIQ and Bias in Results, Monte Carlo summaries, and external validation.
+  Older result files are still readable; missing new metrics show as N/A until rerun.
+- **Preprocessing**: Raw Spectra, SNV, MSC, SG Smoothing, 2nd Derivative,
+  2nd Deriv + SNV, and 2nd Deriv + MSC supplement the four original
+  first-derivative options, for 11 supported methods in total.
+- **Configuration**: users may select a subset of preprocessing candidates to
+  evaluate within grouped nested CV. The four original methods remain selected
+  by default, preventing unexpected growth in search time. Selection is saved
+  in profiles, run history, and final-only refits.
+- **Scientific safeguards**: SG processing respects disjoint spectral intervals;
+  MSC references use training spectra only. Legacy model bundles and historical
+  runs are supported.
+- **Automated checks**: 187 tests passed on the previously merged feature commit;
+  release-preparation changes undergo their own CI checks before tagging.
 
-- Configuration now includes **Use Group for stratification when available**, enabled by default.
-- K-fold and Monte Carlo can be forced to ignore `Group` and use sample-level splitting.
-- Non-LOGO inner CV follows the same Group setting; LOGO always requires and uses `Group`.
-- Preflight and Results report whether outer and inner Group stratification were actually used.
-- Run History now supports two-step permanent deletion of completed, completed-with-errors,
-  failed, and cancelled runs.
-- Running runs are protected from deletion, and deletion is restricted to validated run folders
-  directly under the selected results directory.
+Release archives are created **only** by the GitLab `v0.2.3` tag pipeline:
 
-GitLab CI builds deterministic release artifacts for both supported desktop platforms after the
-validation and quality gates pass:
+- macOS: `soil-mir-app-v0.2.3-mac.tar.gz`
+- Windows: `soil-mir-app-v0.2.3-windows.zip`
 
-- macOS: `soil-mir-app-v0.2.2-<label>-mac.tar.gz`
-- Windows: `soil-mir-app-v0.2.2-<label>-windows.zip`
-
-Both distributions contain the same application and scientific engine. The platform wrappers only
-handle local Python discovery, virtual-environment startup, native path dialogs, browser launch, and
-opening result folders.
-
-The distributions remain local-first Python packages. Target computers need Python 3.10+ and
-internet access on first launch for dependency installation. The macOS package is not a
-signed/notarized standalone `.app`, and the Windows package is not a standalone installer.
-
-Before tagging `v0.2.2`, complete the relevant checks in `RELEASE_CHECKLIST.md` and
-`WINDOWS_RELEASE_CHECKLIST.md` using generated CI artifacts.
+Both remain local-first Python distributions that require Python 3.10+ and
+first-launch internet access. The macOS archive is not a signed/notarized `.app`;
+the Windows archive is not a native installer. Representative Windows and macOS
+manual acceptance checks are described in `WINDOWS_RELEASE_CHECKLIST.md` and
+`RELEASE_CHECKLIST.md` and cannot be replaced by Linux-only CI.

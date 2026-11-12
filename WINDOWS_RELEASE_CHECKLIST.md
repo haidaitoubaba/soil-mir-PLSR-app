@@ -1,12 +1,16 @@
-# Windows v0.2.2 Release Candidate Checklist
+# Windows v0.2.3 Release Candidate Checklist
 
-This checklist validates the Windows distribution for the cross-platform v0.2.2 release. Scientific
+This checklist validates the Windows distribution for the cross-platform v0.2.3 release. Scientific
 behavior must remain identical to the regression-tested core.
 
 ## Automated release gate
 
-- [ ] `pyproject.toml` and `src/soil_mir/__init__.py` both report `0.2.2`.
+- [ ] `pyproject.toml` and `src/soil_mir/__init__.py` both report `0.2.3`.
 - [ ] GitLab `ci_config_check` passes for macOS and Windows release inputs.
+- [ ] New metrics RPD, MAE and CCC are available in Results and Predict.
+- [ ] All 11 preprocessing candidates appear in Configuration; the four original
+      candidates remain selected by default.
+- [ ] A saved second-derivative model can be reopened and used in Predict.
 - [ ] GitLab `lint` passes.
 - [ ] GitLab `pytest` passes, including shared launcher and scientific regression tests.
 - [ ] GitLab `streamlit_smoke` passes.
