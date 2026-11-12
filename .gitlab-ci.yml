@@ -19,12 +19,9 @@ variables:
     ls -lh dist/ &&
     rm -rf /tmp/soil-mir-rc-test &&
     mkdir -p /tmp/soil-mir-rc-test &&
-    artifact="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)" &&
-    test -n "$artifact" &&
-    tar -xzf "$artifact" -C /tmp/soil-mir-rc-test &&
-    launcher="$(find /tmp/soil-mir-rc-test -name run_app.command -type f -print -quit)" &&
-    test -n "$launcher" &&
-    test -x "$launcher"
+    tar -xzf "dist/soil-mir-app-$CI_COMMIT_TAG-mac.tar.gz" -C /tmp/soil-mir-rc-test &&
+    test -x "/tmp/soil-mir-rc-test/soil-mir-app-$CI_COMMIT_TAG/run_app.command" &&
+    echo "macOS release archive verified"
   CI_WINDOWS_BUILD_CMD: >-
     python scripts/build_windows_release.py --label "$CI_COMMIT_TAG" --commit "$CI_COMMIT_SHA"
   CI_WINDOWS_VERIFY_CMD: >-
