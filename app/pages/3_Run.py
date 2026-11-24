@@ -22,7 +22,7 @@ from soil_mir.services.calibration import (
     load_calibration_dataset,
     preflight_validation_methods,
 )
-from soil_mir.services.qc_manifest import read_manifest, validate_manifest
+from soil_mir.services.qc_manifest import read_manifest
 from soil_mir.services.run_control import (
     start_validation_job,
 )
@@ -267,7 +267,12 @@ if qc_manifest:
     try:
         if opus_axis_mode != OPUS_NATIVE:
             raise ValueError("QC requires native OPUS axis mode.")
-        validate_manifest(qc_manifest, st.session_state["soil_mir_spectra_dir"], frozen=True)
+        if not qc_manifest["selection"]["frozen"]:
+            raise ValueError("QC manifest is not frozen.")
+        if str(Path(st.session_state["soil_mir_spectra_dir"]).expanduser().resolve()) != (
+            qc_manifest["input"]["directory"]
+        ):
+            raise ValueError("QC selection belongs to a different directory.")
     except Exception as exc:
         st.error(f"QC selection is not valid: {exc}")
         st.stop()

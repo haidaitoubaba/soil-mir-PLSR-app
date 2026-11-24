@@ -44,7 +44,7 @@ class Batch:
     aligned: dict
     pair_data: dict
     mapping: dict | None = None
-    content_hashes: dict = None
+    content_hashes: dict | None = None
 
 
 def prepare_batch(
@@ -111,7 +111,8 @@ def prepare_batch(
         raise ValueError("Files changed during QC. Please rerun.")
     return Batch(
         directory, inventory, detected, batch_label, expected, lower, upper,
-        exclude_co2, tuple(regions), groups, unmatched, raw, errors, aligned, pair_data, mapping, content_hashes,
+        exclude_co2, tuple(regions), groups, unmatched, raw, errors, aligned, pair_data,
+        mapping, content_hashes,
     )
 
 
