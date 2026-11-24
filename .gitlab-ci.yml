@@ -27,3 +27,58 @@ variables:
   CI_WINDOWS_VERIFY_CMD: >-
     ls -lh dist/ &&
     python -m zipfile -t dist/*-windows.zip
+
+
+# Keep the shared template unchanged; only this project has release credentials.
+stages:
+  - validate
+  - quality
+  - package
+  - release
+
+.release_automation:
+  stage: release
+  image: "python:$CI_PYTHON_VERSION-slim"
+  interruptible: false
+  cache: []
+  resource_group: soil-mir-release
+
+create_release_candidate:
+  extends: .release_automation
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+      when: manual
+      allow_failure: true
+  manual_confirmation: "Create a release candidate from this tested main commit?"
+  dependencies: []
+  environment:
+    name: release/tag
+  script:
+    - python scripts/release_automation.py candidate
+
+promote_release_candidate:
+  extends: .release_automation
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+-rc[1-9][0-9]*$/ && $CI_COMMIT_REF_PROTECTED == "true"'
+      when: manual
+      allow_failure: true
+  manual_confirmation: "Confirm desktop and scientific acceptance, then publish the official release?"
+  dependencies: []
+  environment:
+    name: release/tag
+  script:
+    - python scripts/release_automation.py promote
+
+publish_official_release:
+  extends: .release_automation
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ && $CI_COMMIT_REF_PROTECTED == "true"'
+  needs:
+    - job: mac_rc_bundle
+      artifacts: true
+    - job: windows_rc_bundle
+      artifacts: true
+  environment:
+    name: release/publish
+  script:
+    - python scripts/release_automation.py publish
