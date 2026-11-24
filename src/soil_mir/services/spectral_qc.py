@@ -12,8 +12,9 @@ import pandas as pd
 
 from soil_mir.io.cache import load_opus_spectra_cached
 from soil_mir.io.opus import list_opus_files, read_opus_spectrum
+from soil_mir.services.qc_manifest import resolve_groups
 from soil_mir.qc import (
-    REGIONS, align_group, classify_pair, diagnose, group_filenames,
+    REGIONS, align_group, classify_pair, diagnose,
     group_issues, mad_threshold, pair_metrics,
 )
 
@@ -42,19 +43,20 @@ class Batch:
     errors: dict
     aligned: dict
     pair_data: dict
+    mapping: dict | None = None
 
 
 def prepare_batch(
     directory, *, pattern="Auto", batch_label="", expected=3,
     lower=600., upper=4000., exclude_co2=False, regions=REGIONS,
-    cache_root=None, progress=None,
+    cache_root=None, progress=None, mapping=None,
 ):
     directory = str(Path(directory).expanduser().resolve())
     inventory = file_inventory(directory)
     if not inventory:
         raise ValueError("No OPUS files with numeric extensions were found.")
     names = [name for name, _, _ in inventory]
-    groups, unmatched, detected = group_filenames(names, pattern)
+    groups, unmatched, detected = resolve_groups(names, pattern, mapping)
     if not np.isfinite([lower, upper]).all() or lower >= upper:
         raise ValueError("QC spectral minimum must be below maximum.")
     group_issues([], expected)
@@ -104,7 +106,7 @@ def prepare_batch(
         raise ValueError("Files changed during QC. Please rerun.")
     return Batch(
         directory, inventory, detected, batch_label, expected, lower, upper,
-        exclude_co2, tuple(regions), groups, unmatched, raw, errors, aligned, pair_data,
+        exclude_co2, tuple(regions), groups, unmatched, raw, errors, aligned, pair_data, mapping,
     )
 
 
@@ -250,10 +252,14 @@ def evaluate_batch(batch, criteria, decisions=None):
                 "Type": "Missing replicate", "Reason": "Expected ID not found",
             })
     for name in batch.unmatched:
+        manual = decisions.get(name, {})
         files.append({
             "Sample ID": "", "Batch": batch.batch_label, "File Name": name,
             "File Diagnosis": "Unmatched", "Read Error": batch.errors.get(name, ""),
             "Recommended Action": "Correct filename grouping",
+            "Manual decision": manual.get("decision", "Pending review"),
+            "Manual reason": manual.get("reason", ""),
+            "Review timestamp": manual.get("timestamp", ""),
         })
     sample_frame = pd.DataFrame(samples)
     pair_frame = pd.DataFrame(pairs)

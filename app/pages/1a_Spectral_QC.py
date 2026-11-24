@@ -3,15 +3,23 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import io
+import json
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
 from soil_mir.io.opus import list_opus_files
-from soil_mir.qc import Criteria, REGIONS, group_filenames, group_issues
+from soil_mir.qc import Criteria, REGIONS, group_issues
 from soil_mir.services.local_paths import choose_local_path, open_local_folder
 from soil_mir.services.spectral_qc import (
     evaluate_batch, file_inventory, prepare_batch, report_bytes,
+)
+
+from soil_mir.services.qc_manifest import (
+    build_manifest, criteria_from_dict, read_mapping, resolve_groups,
+    save_manifest, validate_manifest,
 )
 
 st.set_page_config(page_title="Spectral QC", page_icon="🔬", layout="wide")
@@ -33,6 +41,15 @@ if b.button("Browse", key="qc_browse"):
         st.warning(str(exc))
 directory = a.text_input("OPUS spectra directory", key="qc_dir")
 batch_label = st.text_input("Lab / instrument / batch label (optional)")
+mapping = None
+with st.expander("Advanced: optional identity mapping"):
+    upload = st.file_uploader("CSV / Excel mapping", type=["csv", "xlsx"])
+    if upload is not None:
+        try:
+            mapping = read_mapping(io.BytesIO(upload.getvalue()), excel=upload.name.endswith(".xlsx"))
+        except Exception as exc:
+            st.error(f"Invalid mapping: {exc}")
+            st.stop()
 a, b = st.columns(2)
 pattern = a.selectbox("Filename pattern", ["Auto", "NSSH", "Sample_Replicate", "Custom"])
 expected = b.number_input("Expected replicates per sample", min_value=2, max_value=20, value=3)
@@ -103,7 +120,7 @@ try:
     directory = str(Path(directory).expanduser().resolve())
     inventory = file_inventory(directory)
     names = [path.name for path in list_opus_files(directory)]
-    groups, unmatched, detected = group_filenames(names, pattern)
+    groups, unmatched, detected = resolve_groups(names, pattern, mapping)
     preview = []
     for sample, scans in groups.items():
         issues = group_issues(scans, expected)
@@ -126,7 +143,7 @@ if unmatched:
     st.warning(f"{len(unmatched)} unmatched files; these will not be treated as passing.")
     with st.expander("Unmatched files"):
         st.dataframe(pd.DataFrame({"File Name": unmatched}), hide_index=True)
-config = (directory, inventory, pattern, batch_label, expected, lower, upper, exclude_co2, regions)
+config = (directory, inventory, pattern, batch_label, expected, lower, upper, exclude_co2, regions, mapping)
 if st.button("Run QC", type="primary", disabled=not names):
     progress = st.progress(0., text="Reading spectra")
     try:
@@ -135,10 +152,12 @@ if st.button("Run QC", type="primary", disabled=not names):
             lower=lower, upper=upper, exclude_co2=exclude_co2, regions=regions,
             cache_root=Path.home() / ".soil_mir_app" / "qc_cache",
             progress=lambda fraction, message: progress.progress(fraction, text=message),
+            mapping=mapping,
         )
         st.session_state.qc_data = data
         st.session_state.qc_config = config
         st.session_state.qc_reviews = {}
+        st.session_state.pop("qc_frozen", None)
         st.session_state.qc_review_criteria = criteria
         progress.progress(1., text="QC complete")
     except Exception as exc:
@@ -156,6 +175,7 @@ if st.session_state.get("qc_review_criteria") != criteria:
     if st.session_state.qc_reviews:
         archive.append((st.session_state.qc_review_criteria, st.session_state.qc_reviews.copy()))
     st.session_state.qc_reviews = {}
+    st.session_state.pop("qc_frozen", None)
     st.session_state.qc_review_criteria = criteria
     st.info("Threshold changed: cached metrics reused; review decisions require reconfirmation.")
 tables = evaluate_batch(data, criteria, st.session_state.qc_reviews)
@@ -245,6 +265,7 @@ if not summary.empty:
             if decision != "Pending review" and not reason.strip():
                 st.error("Enter a reason for this explicit decision.")
             else:
+                st.session_state.pop("qc_frozen", None)
                 st.session_state.qc_reviews[name] = {
                     "decision": decision, "reason": reason,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -283,3 +304,85 @@ if st.session_state.get("qc_saved_folder") and st.button("Open QC results folder
         open_local_folder(st.session_state.qc_saved_folder)
     except (OSError, RuntimeError) as exc:
         st.warning(str(exc))
+
+if data.unmatched:
+    with st.expander("Resolve unmatched files for optional calibration"):
+        unmatched_name = st.selectbox("Unmatched filename", data.unmatched)
+        unmatched_reason = st.text_input("Reason for excluding unmatched file")
+        if st.button("Confirm exclusion of unmatched file"):
+            if not unmatched_reason.strip():
+                st.error("Enter a reason.")
+            else:
+                st.session_state.qc_reviews[unmatched_name] = {
+                    "decision": "Exclude", "reason": unmatched_reason,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                st.session_state.pop("qc_frozen", None)
+                st.rerun()
+
+st.subheader("Save or restore review")
+st.caption("Review snapshots are local JSON files; no spectra are uploaded.")
+restore = st.file_uploader("Restore QC manifest for the current input and criteria", type=["json"])
+if restore and st.button("Restore saved review"):
+    try:
+        payload = json.loads(restore.getvalue())
+        validate_manifest(payload, directory)
+        current = {
+            "directory": data.directory, "pattern": data.pattern, "batch_label": data.batch_label,
+            "expected": data.expected, "lower": data.lower, "upper": data.upper,
+            "exclude_co2": data.exclude_co2, "regions": [list(r) for r in data.regions],
+            "mapping": data.mapping, "opus_axis_mode": "native_npt",
+        }
+        if payload["input"] != current or criteria_from_dict(payload["criteria"]) != criteria:
+            raise ValueError("Input settings or thresholds differ from saved review.")
+        st.session_state.qc_reviews = payload["decisions"]
+        st.session_state.pop("qc_frozen", None)
+        st.rerun()
+    except Exception as exc:
+        st.error(f"Cannot restore: {exc}")
+
+if st.button("Save review snapshot"):
+    try:
+        folder = Path(output).expanduser() / f"QC_{timestamp}"
+        folder.mkdir(parents=True, exist_ok=False)
+        payload = build_manifest(data, criteria, tables, st.session_state.qc_reviews)
+        save_manifest(folder / "QC_Manifest.json", payload)
+        (folder / "Spectral_QC_Report.xlsx").write_bytes(report_bytes(tables))
+        st.session_state.qc_saved_folder = str(folder)
+        st.success(f"Review saved in {folder}")
+    except Exception as exc:
+        st.error(str(exc))
+
+st.subheader("Optional: use reviewed spectra for calibration")
+st.warning(
+    "QC does not change PLSR inputs unless you explicitly freeze and select a manifest "
+    "on the Run page. All pending non-passing files must be resolved."
+)
+min_retained = st.number_input("Minimum retained scans per sample", min_value=2, value=2)
+allow_single = st.checkbox("Allow explicitly reviewed single-scan exceptions")
+confirmed = st.checkbox(
+    "Confirm suggested Keep for passing groups and all recorded manual decisions"
+)
+if st.button("Freeze reviewed spectra for calibration", disabled=not confirmed):
+    try:
+        payload = build_manifest(
+            data, criteria, tables, st.session_state.qc_reviews, freeze=True,
+            min_retained=min_retained, allow_single=allow_single,
+        )
+        folder = Path(output).expanduser() / f"QC_Frozen_{timestamp}"
+        folder.mkdir(parents=True, exist_ok=False)
+        path = save_manifest(folder / "QC_Manifest.json", payload)
+        (folder / "Spectral_QC_Report.xlsx").write_bytes(report_bytes(tables))
+        selection = payload["selection"]
+        pd.DataFrame([
+            {"File Name": name, "Sample": payload["groups"][name]["sample"]}
+            for name in selection["retained"]
+        ]).to_csv(folder / "Reviewed_Spectra.csv", index=False, encoding="utf-8-sig")
+        st.session_state.qc_frozen = str(path)
+        st.session_state.qc_saved_folder = str(folder)
+        st.success(f"Frozen manifest: {path}")
+    except Exception as exc:
+        st.error(str(exc))
+if st.session_state.get("qc_frozen"):
+    st.code(st.session_state.qc_frozen)
+    st.caption("Select this manifest explicitly on the Run page.")
