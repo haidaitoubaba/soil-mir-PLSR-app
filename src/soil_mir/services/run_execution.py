@@ -57,6 +57,9 @@ def _emit(
         )
 
 
+from soil_mir.services.qc_manifest import validate_manifest
+
+
 def execute_validation_run(
     *,
     datasets: dict,
@@ -69,6 +72,7 @@ def execute_validation_run(
     reference_ranges: dict,
     fallback_exclude_co2: bool,
     resume_run_dir: str | Path | None = None,
+    qc_manifest: dict | None = None,
     cancel_event=None,
     progress_callback=None,
 ) -> dict:
@@ -79,6 +83,11 @@ def execute_validation_run(
     """
     run_dir = None
     try:
+        if qc_manifest is not None:
+            validate_manifest(qc_manifest, spectra_dir, frozen=True)
+            if any(getattr(d, "qc_manifest_id", "") != qc_manifest["manifest_id"]
+                   for d in datasets.values()):
+                raise ValueError("Preflight datasets do not match the frozen QC selection.")
         if resume_run_dir:
             run_dir = Path(
                 resume_run_dir
@@ -118,6 +127,7 @@ def execute_validation_run(
                     "analysis_settings": (
                         settings
                     ),
+                    "qc_manifest": qc_manifest,
                     "reference_ranges": (
                         reference_ranges
                     ),

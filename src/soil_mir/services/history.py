@@ -311,6 +311,7 @@ def run_config_session_values(
         "inner_thread_limit": "soil_mir_inner_thread_limit",
     }
     values = {
+        "soil_mir_qc_manifest_path": "",
         "soil_mir_spectra_dir": str(
             config["spectra_dir"]
         ),

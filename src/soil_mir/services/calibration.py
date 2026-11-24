@@ -15,6 +15,7 @@ from soil_mir.io.reference import (
     read_property_sheet,
 )
 from soil_mir.modeling import fit_calibration_model
+from soil_mir.services.qc_manifest import filter_reference, validate_manifest
 from soil_mir.regions import prepare_region_config
 from soil_mir.transforms import apply_transform
 from soil_mir.validation import (
@@ -56,6 +57,8 @@ class CalibrationDataset:
     group_count: int = 0
     missing_group_samples: int = 0
     opus_axis_mode: str = OPUS_NATIVE
+    qc_manifest_id: str = ""
+    excluded_qc_rows: int = 0
 
 
 def _normalise_group_labels(
@@ -139,6 +142,7 @@ def load_calibration_dataset(
     ref_max: float | None = None,
     *,
     opus_axis_mode: str = OPUS_NATIVE,
+    qc_manifest: dict | None = None,
 ) -> CalibrationDataset:
     if not np.isfinite([wn_min, wn_max]).all() or wn_min >= wn_max:
         raise ValueError("The spectral minimum must be below the maximum and both must be finite.")
@@ -158,6 +162,13 @@ def load_calibration_dataset(
         raise ValueError(
             f"{property_sheet} has no complete reference rows."
         )
+
+    excluded_qc_rows = 0
+    if qc_manifest is not None:
+        if opus_axis_mode != OPUS_NATIVE:
+            raise ValueError("QC requires the native OPUS axis mode.")
+        validate_manifest(qc_manifest, spectra_dir, frozen=True)
+        frame, excluded_qc_rows = filter_reference(frame, columns, qc_manifest)
 
     if ref_min is not None:
         ref_min = float(ref_min)
@@ -301,6 +312,8 @@ def load_calibration_dataset(
         unique_samples=int(pd.Series(sample_ids).nunique()),
         reference_filter_min=ref_min,
         reference_filter_max=ref_max,
+        qc_manifest_id=qc_manifest["manifest_id"] if qc_manifest else "",
+        excluded_qc_rows=excluded_qc_rows,
         excluded_reference_rows=excluded_reference_rows,
         excluded_reference_samples=excluded_reference_samples,
         cache_hits=cache_stats.hits,
@@ -405,6 +418,8 @@ def run_validation_analysis(
         "transform": dataset.transform,
         "ref_min": dataset.reference_filter_min,
         "ref_max": dataset.reference_filter_max,
+        "qc_manifest_id": dataset.qc_manifest_id,
+        "excluded_qc_rows": dataset.excluded_qc_rows,
         "excluded_reference_rows": dataset.excluded_reference_rows,
         "excluded_reference_samples": dataset.excluded_reference_samples,
         "model_role": "final_all_samples",
@@ -524,6 +539,8 @@ def refit_final_model_only(
         "transform": dataset.transform,
         "ref_min": dataset.reference_filter_min,
         "ref_max": dataset.reference_filter_max,
+        "qc_manifest_id": dataset.qc_manifest_id,
+        "excluded_qc_rows": dataset.excluded_qc_rows,
         "excluded_reference_rows": (
             dataset.excluded_reference_rows
         ),
@@ -676,7 +693,9 @@ def preflight_validation_methods(
             "transform": dataset.transform,
             "ref_min": dataset.reference_filter_min,
             "ref_max": dataset.reference_filter_max,
-            "excluded_reference_rows": dataset.excluded_reference_rows,
+            "qc_manifest_id": dataset.qc_manifest_id,
+        "excluded_qc_rows": dataset.excluded_qc_rows,
+        "excluded_reference_rows": dataset.excluded_reference_rows,
             "excluded_reference_samples": dataset.excluded_reference_samples,
             "model_role": "final_all_samples",
             "use_group_stratification": bool(

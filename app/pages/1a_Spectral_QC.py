@@ -46,7 +46,9 @@ with st.expander("Advanced: optional identity mapping"):
     upload = st.file_uploader("CSV / Excel mapping", type=["csv", "xlsx"])
     if upload is not None:
         try:
-            mapping = read_mapping(io.BytesIO(upload.getvalue()), excel=upload.name.endswith(".xlsx"))
+            mapping = read_mapping(
+                io.BytesIO(upload.getvalue()), excel=upload.name.endswith(".xlsx")
+            )
         except Exception as exc:
             st.error(f"Invalid mapping: {exc}")
             st.stop()
@@ -143,7 +145,8 @@ if unmatched:
     st.warning(f"{len(unmatched)} unmatched files; these will not be treated as passing.")
     with st.expander("Unmatched files"):
         st.dataframe(pd.DataFrame({"File Name": unmatched}), hide_index=True)
-config = (directory, inventory, pattern, batch_label, expected, lower, upper, exclude_co2, regions, mapping)
+config = (directory, inventory, pattern, batch_label, expected, lower, upper,
+          exclude_co2, regions, mapping)
 if st.button("Run QC", type="primary", disabled=not names):
     progress = st.progress(0., text="Reading spectra")
     try:

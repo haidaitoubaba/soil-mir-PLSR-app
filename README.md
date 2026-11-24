@@ -3,6 +3,19 @@
 Local-first Streamlit application for soil MIR PLSR calibration, nested validation, model export,
 run history, and prediction.
 
+## Spectral QC (v0.3.0)
+
+Open **Spectral QC** directly, choose an OPUS folder, preview the automatically grouped
+replicates and run QC without a reference workbook. The default strict Pearson threshold
+is 99.6%, editable (e.g. 99.3%). Advanced mode adds exploratory NRMSE and optional regional
+limits. These are repeatability checks, not proof of accuracy or OPUS Quick Compare equivalence.
+Inspect exact suspect filenames and pair metrics, review spectra, export Excel and rescan lists.
+Optional CSV/XLSX identity mapping uses `File Name`, `Sample`, and `Replicate` (recommended).
+Use one lab/instrument/batch per run. Save and restore local JSON review snapshots; freeze a
+selection only after manual confirmation. On Run, optionally enter the frozen manifest path;
+file SHA-256 fingerprints and authoritative reference Sample IDs are validated before filtering.
+No original spectra are changed. Existing PLSR and Predict workflows remain available without QC.
+
 ## Current workflow
 
 The app now provides:
