@@ -623,6 +623,7 @@ def initialize_run_manifest(
     methods: list[str],
     spectra_dir: str,
     reference_excel: str,
+    qc_manifest_id: str = "",
 ) -> dict:
     run_dir = Path(run_dir)
     manifest = {
@@ -639,6 +640,8 @@ def initialize_run_manifest(
         "failures": [],
         "error": "",
     }
+    if qc_manifest_id:
+        manifest["qc_manifest_id"] = qc_manifest_id
     write_json(run_dir / RUN_MANIFEST_NAME, manifest)
     return manifest
 

@@ -113,6 +113,12 @@ for manifest in history:
             f"**Reference workbook:** "
             f"{manifest.get('reference_excel', '')}"
         )
+        try:
+            saved_qc = load_run_config(manifest["run_dir"]).get("qc_manifest")
+            if saved_qc:
+                st.caption(f"QC selection: {saved_qc['manifest_id'][:12]}")
+        except (OSError, ValueError, KeyError):
+            pass
         error = manifest.get("error", "")
         if error:
             st.error(error)

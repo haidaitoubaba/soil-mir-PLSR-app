@@ -65,3 +65,19 @@ def test_spectral_alignment_trims_to_shared_coverage_without_extrapolation():
             rtol=0,
             atol=1e-12,
         )
+
+
+
+def test_qc_rejects_non_absorbance_block(monkeypatch):
+    import pytest
+
+    from soil_mir.io.opus import read_opus_spectrum
+
+    monkeypatch.setattr(brukeropusreader, "read_file", lambda _: {
+        "Sc": np.arange(8.),
+        "Sc Data Parameter": {"NPT": 8, "FXV": 4000., "LXV": 600.},
+    })
+    # Historical reader retains its fallback for backwards compatibility.
+    assert len(read_opus_spectrum("sample.0")[0]) == 8
+    with pytest.raises(ValueError, match="absorbance block"):
+        read_opus_spectrum("sample.0", require_absorbance=True)

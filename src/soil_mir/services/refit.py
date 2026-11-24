@@ -163,6 +163,7 @@ def refit_saved_run_tolerance(
             "max"
         ),
         opus_axis_mode=run_config.get("opus_axis_mode", OPUS_LEGACY),
+        **({"qc_manifest": run_config["qc_manifest"]} if run_config.get("qc_manifest") else {}),
     )
 
     refit = refit_final_model_only(

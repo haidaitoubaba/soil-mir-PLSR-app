@@ -22,6 +22,7 @@ from soil_mir.services.calibration import (
     load_calibration_dataset,
     preflight_validation_methods,
 )
+from soil_mir.services.qc_manifest import read_manifest
 from soil_mir.services.run_control import (
     start_validation_job,
 )
@@ -213,13 +214,16 @@ resume_run_dir_text = st.session_state.get(
     "",
 )
 resume_manifest = None
+qc_manifest = None
 opus_axis_mode = OPUS_NATIVE
 if resume_run_dir_text:
     try:
         resume_manifest = read_run_manifest(
             resume_run_dir_text
         )
-        opus_axis_mode = load_run_config(resume_run_dir_text).get("opus_axis_mode", OPUS_LEGACY)
+        saved_config = load_run_config(resume_run_dir_text)
+        opus_axis_mode = saved_config.get("opus_axis_mode", OPUS_LEGACY)
+        qc_manifest = saved_config.get("qc_manifest")
     except Exception as exc:
         st.warning(
             "The selected run can no longer be resumed: "
@@ -230,6 +234,7 @@ if resume_run_dir_text:
             None,
         )
         resume_run_dir_text = ""
+        qc_manifest = None
     else:
         pending = pending_run_keys(
             resume_manifest
@@ -241,6 +246,44 @@ if resume_run_dir_text:
             f"already completed; {len(pending)} remain. "
             "Preflight will run again, and completed combinations will be skipped."
         )
+
+if resume_run_dir_text:
+    st.info("Resume uses the original QC selection, if any.")
+else:
+    qc_path = st.text_input(
+        "Optional frozen QC manifest (JSON path)",
+        value=st.session_state.get("soil_mir_qc_manifest_path", ""),
+        help="Leave blank to run the original PLSR workflow without QC filtering.",
+    )
+    if qc_path.strip():
+        try:
+            qc_manifest = read_manifest(qc_path)
+        except Exception as exc:
+            st.error(f"Cannot read QC manifest: {exc}")
+            st.stop()
+    if st.session_state.get("qc_frozen") and not qc_path.strip():
+        st.caption("A frozen selection exists on Spectral QC; copy its path here to opt in.")
+if qc_manifest:
+    try:
+        if opus_axis_mode != OPUS_NATIVE:
+            raise ValueError("QC requires native OPUS axis mode.")
+        if not qc_manifest["selection"]["frozen"]:
+            raise ValueError("QC manifest is not frozen.")
+        if str(Path(st.session_state["soil_mir_spectra_dir"]).expanduser().resolve()) != (
+            qc_manifest["input"]["directory"]
+        ):
+            raise ValueError("QC selection belongs to a different directory.")
+    except Exception as exc:
+        st.error(f"QC selection is not valid: {exc}")
+        st.stop()
+    st.info(
+        f"QC selection {qc_manifest['manifest_id'][:12]}: "
+        f"{len(qc_manifest['selection']['retained'])} retained, "
+        f"{len(qc_manifest['selection']['excluded'])} explicitly excluded."
+    )
+    st.caption("Reference Sample IDs remain authoritative; conflicts stop preflight.")
+else:
+    st.caption("Spectral QC selection not applied.")
 
 if "loso" in methods:
     st.warning(
@@ -267,6 +310,7 @@ preflight_payload = {
     "methods": methods,
     "settings": settings,
     "opus_axis_mode": opus_axis_mode,
+    "qc_manifest_id": qc_manifest["manifest_id"] if qc_manifest else "",
     "reference_ranges": reference_ranges,
     "fallback_exclude_co2": bool(
         st.session_state.get(
@@ -363,6 +407,7 @@ if st.button(
                     ),
                     cache_root=cache_root,
                     **({"opus_axis_mode": opus_axis_mode} if opus_axis_mode != OPUS_NATIVE else {}),
+                    **({"qc_manifest": qc_manifest} if qc_manifest else {}),
                     ref_min=property_range.get(
                         "min"
                     ),
@@ -396,6 +441,9 @@ if st.button(
                         f"{dataset.excluded_reference_rows:,} rows from "
                         f"{dataset.excluded_reference_samples:,} samples."
                     )
+
+                if dataset.qc_manifest_id:
+                    st.write(f"QC excluded {dataset.excluded_qc_rows} reference rows.")
 
                 preflight_frames.append(
                     preflight_validation_methods(
@@ -555,6 +603,7 @@ if start_validation:
                 False,
             )
         ),
+        **({"qc_manifest": qc_manifest} if qc_manifest else {}),
         resume_run_dir=(
             resume_run_dir_text
             or None

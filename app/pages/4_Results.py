@@ -54,6 +54,12 @@ last_run = st.session_state.get(
     "soil_mir_last_run_dir"
 )
 if last_run:
+    try:
+        saved_qc = load_run_config(last_run).get("qc_manifest")
+        if saved_qc:
+            st.caption(f"Frozen spectral QC selection: {saved_qc['manifest_id']}")
+    except (OSError, ValueError, KeyError):
+        pass
     st.success(
         f"Saved locally: {last_run}"
     )
