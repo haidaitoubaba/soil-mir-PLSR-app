@@ -82,7 +82,9 @@ def test_qc_filter_calibration_integration(tmp_path, monkeypatch):
     axis = np.linspace(600, 4000, 341)
     x = np.sin(axis / 100)
     raw = {name: (x if i < 2 else -x, axis) for i, name in enumerate(names)}
-    monkeypatch.setattr(spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None))
+    monkeypatch.setattr(
+        spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
+    )
     batch = spectral_qc.prepare_batch(folder)
     criteria = Criteria()
     decisions = {name: {"decision": "Keep" if i < 2 else "Exclude", "reason": "checked"}
@@ -120,7 +122,9 @@ def test_manifest_detects_same_size_edit_before_freeze(tmp_path, monkeypatch):
     axis = np.linspace(600, 4000, 341)
     x = np.sin(axis / 100)
     raw = {name: (x, axis) for name in names}
-    monkeypatch.setattr(spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None))
+    monkeypatch.setattr(
+        spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
+    )
     batch = spectral_qc.prepare_batch(tmp_path)
     criteria = Criteria()
     path = tmp_path / names[0]
