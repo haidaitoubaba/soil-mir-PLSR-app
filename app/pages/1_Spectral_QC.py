@@ -12,9 +12,11 @@ import streamlit as st
 
 from soil_mir.io.opus import list_opus_files
 from soil_mir.qc import Criteria, REGIONS, group_issues
+from soil_mir.preprocessing import NO_SG_METHODS, PREPROCESSING_NAMES
 from soil_mir.services.local_paths import choose_local_path, open_local_folder
 from soil_mir.services.spectral_qc import (
-    evaluate_batch, file_inventory, prepare_batch, report_bytes,
+    evaluate_batch, file_inventory, prepare_batch, preview_spectra, recommended_reviews,
+    report_bytes,
 )
 
 from soil_mir.services.qc_manifest import (
@@ -84,10 +86,15 @@ else:
         "to flag insufficient coverage instead."
     )
 exclude_co2 = st.checkbox("Exclude CO₂ from global metrics (retain regional diagnostic)")
-region_input = st.text_input(
-    "Diagnostic regions (lower-upper, comma separated)",
-    value=", ".join(f"{a}-{b}" for a, b in REGIONS),
-)
+with st.expander("Advanced regional diagnostics"):
+    st.caption(
+        "Regional RMSE identifies where spectra disagree. In USDA-inspired mode it is "
+        "diagnostic only. The default windows are approximate and do not restrict global QC."
+    )
+    region_input = st.text_input(
+        "Diagnostic regions (lower-upper, comma separated)",
+        value=", ".join(f"{a}-{b}" for a, b in REGIONS),
+    )
 try:
     regions = tuple(tuple(map(float, token.strip().split("-")))
                     for token in region_input.split(",") if token.strip())
@@ -204,7 +211,7 @@ if st.session_state.get("qc_review_criteria") != criteria:
     st.info("Threshold changed: cached metrics reused; review decisions require reconfirmation.")
 tables = evaluate_batch(data, criteria, st.session_state.qc_reviews)
 overview = tables["Overview"].set_index("Metric")["Value"]
-st.subheader("QC summary")
+st.subheader("QC summary — active all-pair QC")
 for col, key in zip(st.columns(4), ["Pass", "Review", "Fail", "Incomplete"]):
     col.metric(key, int(overview[key]))
 st.caption(
@@ -233,6 +240,44 @@ else:
     a, b = st.columns(2)
     a.metric("Pass rate (all identified)", f"{overview['Sample pass rate (%)']:.2f}%")
     b.metric("Pass rate (evaluable only)", f"{overview['Evaluable sample pass rate (%)']:.2f}%")
+st.subheader("Dual evaluation — comparison of strategies")
+st.caption(
+    "Both use the same raw Pearson coefficients and strict threshold. USDA-style uses "
+    "replicate ID 1 as reference (self = 100%); all-pairwise tests every pair. "
+    "Not validated against OPUS Quick Compare. Advanced NRMSE/region gates affect only "
+    "active all-pair QC and review decisions, not this Pearson-only comparison."
+)
+comparison = tables["Method Comparison"]
+sensitivity = tables["Threshold Sensitivity"]
+current = sensitivity.loc[sensitivity["Threshold (%)"] == criteria.similarity].iloc[0]
+n = int(current["Comparable samples"])
+a, b, c = st.columns(3)
+a.metric("USDA-style pass rate", f"{current['USDA-style pass rate (%)']:.2f}%" if n else "N/A")
+b.metric("All-pairwise Pearson pass rate",
+         f"{current['All-pairwise pass rate (%)']:.2f}%" if n else "N/A")
+c.metric("Method agreement", f"{current['Agreement (%)']:.2f}%" if n else "N/A")
+st.caption(
+    f"Comparable samples: {n}; not comparable: {int(current['Not comparable'])}; "
+    f"USDA-style pass / all-pair not pass: {int(current['USDA pass / all-pair not pass'])}."
+)
+with st.expander("Method comparison and threshold sensitivity"):
+    view = st.radio("Comparison view", ["Both", "Disagreements", "Not comparable"],
+                    horizontal=True)
+    displayed = comparison
+    if view == "Disagreements":
+        displayed = comparison.loc[comparison["Method agreement"] == "Disagree"]
+    elif view == "Not comparable":
+        displayed = comparison.loc[comparison["Method agreement"] == "Not comparable"]
+    st.dataframe(displayed, hide_index=True)
+    st.download_button(
+        "Export Method Comparison", comparison.to_csv(index=False).encode("utf-8-sig"),
+        file_name="Method_Comparison.csv", mime="text/csv",
+    )
+    st.dataframe(sensitivity, hide_index=True)
+    st.download_button(
+        "Export Threshold Sensitivity", sensitivity.to_csv(index=False).encode("utf-8-sig"),
+        file_name="Threshold_Sensitivity.csv", mime="text/csv",
+    )
 summary = tables["Sample QC"]
 if not summary.empty:
     statuses = st.multiselect(
@@ -256,6 +301,9 @@ if not summary.empty:
     sample_row = summary.loc[summary["Sample ID"] == sample].iloc[0]
     st.write("**Suspected file:**", sample_row["Suspected File"] or "None uniquely identified")
     st.write("**Recommended action:**", sample_row["Recommended Action"])
+    st.write("**USDA-style:**", sample_row["USDA-style status"],
+             "| **All-pairwise Pearson:**", sample_row["All-pairwise Pearson status"])
+    st.dataframe(comparison.loc[comparison["Sample ID"] == sample], hide_index=True)
     pair_frame = tables["Pairwise QC"]
     if not pair_frame.empty:
         st.dataframe(pair_frame.loc[pair_frame["Sample ID"] == sample], hide_index=True)
@@ -266,41 +314,82 @@ if not summary.empty:
                          hide_index=True)
     filenames = [scan.filename for scan in data.groups[sample]]
     visible = st.multiselect("Show spectra", filenames, default=filenames, key=f"qc_plot_{sample}")
+    st.subheader("Spectral visualization")
+    st.caption(
+        "Preview only. QC classification always uses raw absorbance. MSC uses the mean "
+        "of all aligned replicates in the selected sample, not only visible curves. "
+        "SG derivatives follow the modeling convention (per spectral point)."
+    )
+    method = st.selectbox(
+        "Display preprocessing",
+        ["Raw Spectra"] + [m for m in PREPROCESSING_NAMES if m != "Raw Spectra"],
+        disabled=sample not in data.aligned,
+    )
+    window, poly = 11, 2
+    if method not in NO_SG_METHODS:
+        a, b = st.columns(2)
+        window = a.number_input("SG window (points)", min_value=3, value=11, step=2)
+        poly = b.number_input("SG polynomial order", min_value=1, value=2)
+    plot_axis, processed = None, {}
+    if sample in data.aligned:
+        try:
+            plot_axis, processed = preview_spectra(data, sample, method, window, poly)
+        except ValueError as exc:
+            st.warning(f"Cannot preview {method}: {exc}")
+    if "SNV" in method:
+        unit = "Normalized signal"
+    elif "Deriv" in method:
+        unit = "Derivative (per point)" if "2nd" not in method else "Second derivative (per point²)"
+    else:
+        unit = "Absorbance (AU)"
     fig, ax = plt.subplots()
     for i, name in enumerate(filenames):
-        if name in visible and name in data.raw:
+        if name not in visible:
+            continue
+        if name in processed:
+            values, axis = processed[name], plot_axis
+        elif method == "Raw Spectra" and name in data.raw:
             values, axis = data.raw[name]
-            ax.plot(axis, values, label=name, color=f"C{i%10}",
-                    linewidth=2 if name == sample_row["Suspected File"] else 1)
+        else:
+            continue
+        ax.plot(axis, values, label=name, color=f"C{i%10}",
+                linewidth=2 if name == sample_row["Suspected File"] else 1)
+    ax.set_title(f"Spectral overlay — {method}")
     ax.set_xlabel("Wavenumber (cm⁻¹)")
-    ax.set_ylabel("Absorbance")
+    ax.set_ylabel(unit)
     ax.invert_xaxis()
     if ax.lines:
         ax.legend(fontsize="small")
     st.pyplot(fig)
     plt.close(fig)
-    if sample in data.aligned:
-        axis, spectra = data.aligned[sample]
+    if processed:
         fig, ax = plt.subplots()
         for i, name in enumerate(filenames):
             for other in filenames[i+1:]:
-                if name in visible and other in visible and name in spectra and other in spectra:
-                    ax.plot(axis, spectra[name] - spectra[other], label=f"{name} - {other}")
+                if (name in visible and other in visible
+                        and name in processed and other in processed):
+                    ax.plot(
+                        plot_axis, processed[name] - processed[other], label=f"{name} - {other}"
+                    )
         ax.axhline(0, color="gray", linewidth=.8)
         ax.invert_xaxis()
+        ax.set_title(f"Pairwise difference — {method}")
         ax.set_xlabel("Wavenumber (cm⁻¹)")
-        ax.set_ylabel("Difference (AU)")
+        ax.set_ylabel(f"Difference: {unit}")
         if len(ax.lines) > 1:
             ax.legend(fontsize="small")
         st.pyplot(fig)
         plt.close(fig)
     file_rows = tables["Replicate Diagnosis"]
-    st.dataframe(file_rows.loc[file_rows["Sample ID"] == sample], hide_index=True)
+    concise = ["Replicate ID", "File Name", "File Diagnosis", "Recommended decision",
+               "Manual decision", "Min similarity (%)", "Recommendation reason"]
+    st.dataframe(file_rows.loc[file_rows["Sample ID"] == sample, concise], hide_index=True)
     st.subheader("Review decision")
     name = st.selectbox("Exact OPUS file", filenames)
     previous = st.session_state.qc_reviews.get(name, {})
     choices = ["Pending review", "Keep", "Exclude", "Rescan required"]
-    with st.form(f"qc_review_{name}_{criteria}"):
+    revision = st.session_state.get("qc_review_revision", 0)
+    with st.form(f"qc_review_{name}_{criteria}_{revision}"):
         decision = st.radio("Decision", choices,
                             index=choices.index(previous.get("decision", choices[0])))
         reason = st.text_area("Reason", value=previous.get("reason", ""))
@@ -312,24 +401,75 @@ if not summary.empty:
                 st.session_state.qc_reviews[name] = {
                     "decision": decision, "reason": reason,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "source": "Manual",
                 }
                 st.rerun()
+st.subheader("Batch review decisions")
+st.caption(
+    "Apply recommendations only to files without existing decisions: keep agreeing scans, "
+    "recommend rescanning a uniquely suspected third scan. Ambiguous and invalid inputs "
+    "stay pending. This never changes or deletes original spectra."
+)
+if st.button("Apply recommended decisions to unreviewed files"):
+    updated = recommended_reviews(tables, st.session_state.qc_reviews)
+    count = len(updated) - len(st.session_state.qc_reviews)
+    st.session_state.qc_reviews = updated
+    st.session_state.pop("qc_frozen", None)
+    st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
+    st.session_state.qc_review_notice = f"Applied {count} recommended decisions."
+    st.rerun()
+if st.session_state.get("qc_review_notice"):
+    st.success(st.session_state.pop("qc_review_notice"))
 with st.expander("All files and unresolved inputs"):
-    st.dataframe(tables["File QC"], hide_index=True)
+    file_table = tables["File QC"]
+    selected = st.multiselect(
+        "Filter file diagnosis",
+        ["Consistent", "Suspected", "Needs review", "Invalid", "Unmatched"],
+        default=["Consistent", "Suspected", "Needs review", "Invalid", "Unmatched"],
+    )
+    show_pending = st.checkbox("Pending decisions only")
+    display = file_table.loc[file_table["File Diagnosis"].isin(selected)]
+    if show_pending:
+        display = display.loc[display["Manual decision"] == "Pending review"]
+    detailed = st.checkbox("Show detailed metrics and error messages")
+    columns = [
+        "Sample ID", "Replicate ID", "File Name", "File Diagnosis", "Recommended decision",
+        "Manual decision", "Recommendation reason",
+    ]
+    st.dataframe(display if detailed else display.reindex(columns=columns), hide_index=True)
 with st.expander("Exploratory MAD thresholds"):
     st.dataframe(tables["Threshold diagnostics"], hide_index=True)
 st.subheader("Export QC results")
-rescan = tables["Rescan List"]
-st.dataframe(rescan, hide_index=True)
-rescan_mode = st.radio("Rescan export", ["All", "Confirmed only", "Suggestions only"],
-                       horizontal=True)
-if rescan_mode == "Confirmed only":
-    rescan = rescan.loc[rescan["Type"] == "Confirmed rescan"]
-elif rescan_mode == "Suggestions only":
-    rescan = rescan.loc[rescan["Type"] != "Confirmed rescan"]
 timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-st.download_button("Export Rescan List", rescan.to_csv(index=False).encode("utf-8-sig"),
-                   file_name=f"Rescan_List_{timestamp}.csv", mime="text/csv")
+agreed_tab, review_tab, rescan_tab = st.tabs(["Agreed spectra", "Review decisions", "Rescan list"])
+with agreed_tab:
+    agreed = tables["Agreed Spectra"]
+    st.caption(
+        "Automatic recommendation, not an approved PLSR selection. Includes all-pass groups "
+        "and the unique passing pair of a complete triplet. Manual decisions remain separate."
+    )
+    st.write(f"{len(agreed)} agreed spectra across {agreed['Sample ID'].nunique()} samples.")
+    st.dataframe(agreed, hide_index=True)
+    st.download_button("Export Agreed Spectra", agreed.to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"Agreed_Spectra_{timestamp}.csv", mime="text/csv")
+with review_tab:
+    review = tables["Review decisions"]
+    st.caption("Recorded manual or applied-recommendation decisions. Pending is not approval.")
+    st.dataframe(review, hide_index=True)
+    kept = review.loc[review["Manual decision"] == "Keep"]
+    st.download_button("Export Reviewed Keep List", kept.to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"Reviewed_Keep_{timestamp}.csv", mime="text/csv")
+with rescan_tab:
+    rescan = tables["Rescan List"]
+    rescan_mode = st.radio("Rescan export", ["All", "Confirmed only", "Suggestions only"],
+                           horizontal=True)
+    if rescan_mode == "Confirmed only":
+        rescan = rescan.loc[rescan["Type"] == "Confirmed rescan"]
+    elif rescan_mode == "Suggestions only":
+        rescan = rescan.loc[rescan["Type"] != "Confirmed rescan"]
+    st.dataframe(rescan, hide_index=True)
+    st.download_button("Export Rescan List", rescan.to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"Rescan_List_{timestamp}.csv", mime="text/csv")
 output = st.text_input("QC output directory", value=str(Path(directory).parent / "Spectral_QC"))
 if st.button("Save Excel QC report"):
     try:
@@ -374,6 +514,7 @@ if restore and st.button("Restore saved review"):
         if payload["input"] != current or criteria_from_dict(payload["criteria"]) != criteria:
             raise ValueError("Input settings or thresholds differ from saved review.")
         st.session_state.qc_reviews = payload["decisions"]
+        st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
         st.session_state.pop("qc_frozen", None)
         st.rerun()
     except Exception as exc:
