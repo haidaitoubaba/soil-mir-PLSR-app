@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from soil_mir.io.opus import OPUS_LEGACY
 from soil_mir.preprocessing import LEGACY_PREPROCESSING_NAMES
 from soil_mir.reporting import (
     export_final_refit,
@@ -161,6 +162,7 @@ def refit_saved_run_tolerance(
         ref_max=property_range.get(
             "max"
         ),
+        opus_axis_mode=run_config.get("opus_axis_mode", OPUS_LEGACY),
     )
 
     refit = refit_final_model_only(

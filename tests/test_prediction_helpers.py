@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from soil_mir.io.opus import OPUS_LEGACY, OPUS_NATIVE
 from soil_mir.services import prediction
 from soil_mir.services.prediction import (
     load_model_bundle,
@@ -353,7 +354,8 @@ def test_external_library_accepts_reference_filenames_without_numeric_extension(
     )
     calls = []
 
-    def fake_cached(directory, filenames, cache_root=None):
+    def fake_cached(directory, filenames, cache_root=None, *, opus_axis_mode=OPUS_NATIVE):
+        assert opus_axis_mode == OPUS_NATIVE
         calls.append(list(filenames))
         return (
             {name: raw[name] for name in filenames},
@@ -389,7 +391,8 @@ def test_prediction_only_falls_back_to_readable_non_numeric_opus_files(
 
     axis = np.array([3000.0, 2000.0, 1000.0])
 
-    def fake_cached(directory, filenames, cache_root=None):
+    def fake_cached(directory, filenames, cache_root=None, *, opus_axis_mode=OPUS_NATIVE):
+        assert opus_axis_mode == OPUS_NATIVE
         name = filenames[0]
         if name == "notes.txt":
             raise ValueError("not an OPUS file")
@@ -442,8 +445,13 @@ def test_predict_opus_directory_uses_reference_file_names_for_loading(
         lambda _path: _bundle([1000.0, 1001.0]),
     )
 
-    def fake_load(_directory, *, filenames=None, cache_root=None):
+    def fake_load(
+        _directory, *, filenames=None, cache_root=None,
+        opus_axis_mode=OPUS_NATIVE, crop_min_cm1=None, crop_max_cm1=None,
+    ):
         captured["filenames"] = filenames
+        captured["axis_mode"] = opus_axis_mode
+        captured["crop"] = (crop_min_cm1, crop_max_cm1)
         return (
             {
                 "A.opus": np.array([1.0, 2.0]),
@@ -475,3 +483,12 @@ def test_predict_opus_directory_uses_reference_file_names_for_loading(
     )
 
     assert captured["filenames"] == ["A.opus", "B"]
+    assert captured["axis_mode"] == OPUS_LEGACY
+    assert captured["crop"] == (None, None)
+
+    prediction.predict_opus_directory(
+        "model.joblib", "spectra", reference=reference,
+        opus_axis_mode=OPUS_NATIVE, crop_max_cm1=3992.4996,
+    )
+    assert captured["axis_mode"] == OPUS_NATIVE
+    assert captured["crop"] == (None, 3992.4996)

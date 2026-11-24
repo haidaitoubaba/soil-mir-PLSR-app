@@ -106,13 +106,22 @@ model compatibility.
 - **Automated checks**: 187 tests passed on the previously merged feature commit;
   release-preparation changes undergo their own CI checks before tagging.
 
-Release archives are created **only** by the GitLab `v0.2.3` tag pipeline:
+Release archives for the current version are created **only** by the GitLab `v0.2.4` tag pipeline:
 
-- macOS: `soil-mir-app-v0.2.3-mac.tar.gz`
-- Windows: `soil-mir-app-v0.2.3-windows.zip`
+- macOS: `soil-mir-app-v0.2.4-mac.tar.gz`
+- Windows: `soil-mir-app-v0.2.4-windows.zip`
 
 Both remain local-first Python distributions that require Python 3.10+ and
 first-launch internet access. The macOS archive is not a signed/notarized `.app`;
 the Windows archive is not a native installer. Representative Windows and macOS
 manual acceptance checks are described in `WINDOWS_RELEASE_CHECKLIST.md` and
 `RELEASE_CHECKLIST.md` and cannot be replaced by Linux-only CI.
+
+## v0.2.4 OPUS axis and spectral range update
+
+- Correct Bruker OPUS wavenumber axes for new calibration runs using the selected block's declared valid point count (NPT), scaling factor (CSF), and FXV/LXV endpoints. This avoids including trailing storage padding in the measured grid.
+- Enter training spectral minimum and maximum directly to four decimal places. Default: 600–4000 cm⁻¹. Calibration retains measured grid points inside the bounds, with existing property-specific CO₂ exclusion.
+- Optionally crop external spectra before alignment and interpolation to the saved model grid. Either bound may be blank; at least two measured points must remain. Off-grid crop endpoints are projected from the nearest two retained measurements. The existing endpoint extrapolation limit applies after alignment.
+- Prediction workbooks record model and prediction OPUS modes, crop bounds, aligned range, and endpoint extrapolation limit. Prediction filenames include microseconds.
+
+New models use the corrected `native_npt` reader; historical runs and models without a stored mode retain `legacy_array_length`. In Predict, **Match saved model** selects the compatible reader automatically. Use the manual mode override for diagnostics only; retrain and predict with the same corrected mode for scientific comparisons. Cache version 2 isolates the two modes. See [release notes](RELEASE_NOTES_v0.2.4.md) for compatibility and acceptance checks.

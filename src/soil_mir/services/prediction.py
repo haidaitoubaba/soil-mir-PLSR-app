@@ -8,7 +8,10 @@ import pandas as pd
 
 from soil_mir.io.cache import OpusCacheStats, load_opus_spectra_cached
 from soil_mir.io.opus import (
+    OPUS_LEGACY,
+    OPUS_NATIVE,
     align_spectral_library,
+    crop_spectrum,
     list_opus_files,
 )
 from soil_mir.metrics import (
@@ -237,6 +240,7 @@ def _load_readable_external_candidates(
     spectra_dir: str | Path,
     *,
     cache_root: str | Path | None = None,
+    opus_axis_mode: str = OPUS_NATIVE,
 ) -> tuple[
     dict[str, tuple[np.ndarray, np.ndarray]],
     OpusCacheStats,
@@ -272,6 +276,7 @@ def _load_readable_external_candidates(
                 directory,
                 [path.name],
                 cache_root=cache_root,
+                opus_axis_mode=opus_axis_mode,
             )
         except Exception as exc:
             failures.append((path.name, str(exc)))
@@ -309,6 +314,9 @@ def load_external_opus_library(
     *,
     filenames: list[str] | tuple[str, ...] | None = None,
     cache_root: str | Path | None = None,
+    opus_axis_mode: str = OPUS_NATIVE,
+    crop_min_cm1: float | None = None,
+    crop_max_cm1: float | None = None,
 ) -> tuple[
     dict[str, np.ndarray],
     np.ndarray,
@@ -337,6 +345,7 @@ def load_external_opus_library(
             spectra_dir,
             requested,
             cache_root=cache_root,
+            opus_axis_mode=opus_axis_mode,
         )
     else:
         files = list_opus_files(spectra_dir)
@@ -345,12 +354,21 @@ def load_external_opus_library(
                 spectra_dir,
                 [path.name for path in files],
                 cache_root=cache_root,
+                opus_axis_mode=opus_axis_mode,
             )
         else:
             raw, cache_stats = _load_readable_external_candidates(
                 spectra_dir,
                 cache_root=cache_root,
+                opus_axis_mode=opus_axis_mode,
             )
+
+    if crop_min_cm1 is not None or crop_max_cm1 is not None:
+        for name, (values, axis) in raw.items():
+            try:
+                raw[name] = crop_spectrum(values, axis, crop_min_cm1, crop_max_cm1)
+            except ValueError as exc:
+                raise ValueError(f"Cannot crop {name}: {exc}") from exc
 
     raw_spectra = {
         name: values
@@ -535,8 +553,15 @@ def predict_opus_directory(
     reference: pd.DataFrame | None = None,
     max_extrapolation_cm1: float = 0.25,
     cache_root: str | Path | None = None,
+    opus_axis_mode: str | None = None,
+    crop_min_cm1: float | None = None,
+    crop_max_cm1: float | None = None,
 ) -> dict:
     bundle = load_model_bundle(model_path)
+    saved_axis_mode = bundle.get("opus_axis_mode", OPUS_LEGACY)
+    axis_mode = saved_axis_mode if opus_axis_mode is None else opus_axis_mode
+    if axis_mode not in (OPUS_NATIVE, OPUS_LEGACY):
+        raise ValueError(f"Unknown OPUS axis mode: {axis_mode}")
     reference_filenames = (
         _reference_filenames(reference)
         if reference is not None
@@ -547,6 +572,9 @@ def predict_opus_directory(
             spectra_dir,
             filenames=reference_filenames,
             cache_root=cache_root,
+            opus_axis_mode=axis_mode,
+            crop_min_cm1=crop_min_cm1,
+            crop_max_cm1=crop_max_cm1,
         )
     )
     replicate, sample, metrics = (
@@ -567,6 +595,15 @@ def predict_opus_directory(
         "metrics": metrics,
         "cache_stats": cache_stats,
         "raw_wavenumbers": raw_wavenumbers,
+        "input_metadata": {
+            "Model OPUS axis mode": saved_axis_mode,
+            "Prediction OPUS axis mode": axis_mode,
+            "Crop minimum (cm⁻¹)": crop_min_cm1,
+            "Crop maximum (cm⁻¹)": crop_max_cm1,
+            "Aligned minimum (cm⁻¹)": float(raw_wavenumbers.min()),
+            "Aligned maximum (cm⁻¹)": float(raw_wavenumbers.max()),
+            "Maximum endpoint extrapolation (cm⁻¹)": max_extrapolation_cm1,
+        },
     }
 
 
@@ -579,6 +616,8 @@ def save_prediction_results(
     output_path: str | Path,
     model_path: str | Path,
     reference_sheet: str,
+    *,
+    input_metadata: dict | None = None,
 ) -> Path:
     """Save predictions and model metadata using the authoritative script layout."""
     output_path = Path(output_path).expanduser()
@@ -647,6 +686,10 @@ def save_prediction_results(
                     "",
                 ),
             },
+            *(
+                {"Field": key, "Value": value}
+                for key, value in (input_metadata or {}).items()
+            ),
         ]
     )
 

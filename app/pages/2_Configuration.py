@@ -71,8 +71,6 @@ def _initialize_widget_state(
             for prop in value
             if prop in available_properties
         ]
-    if config_key == "soil_mir_wn_range":
-        value = tuple(value)
     st.session_state[widget_key] = value
 
 
@@ -80,10 +78,16 @@ _initialize_widget_state(
     "soil_mir_selected_properties",
     list(default_properties),
 )
-_initialize_widget_state(
-    "soil_mir_wn_range",
-    (600, 4000),
+# Profiles and saved runs can supply a range before the widgets are rendered.
+pending_range = st.session_state.pop(PROFILE_WIDGET_KEYS["soil_mir_wn_range"], None)
+initial_range = (
+    pending_range
+    if pending_range is not None
+    else st.session_state.get("soil_mir_wn_range", (600.0, 4000.0))
 )
+for key, bound in zip(("cfg_wn_min", "cfg_wn_max"), initial_range):
+    if pending_range is not None or key not in st.session_state:
+        st.session_state[key] = float(bound)
 _initialize_widget_state(
     "soil_mir_exclude_co2",
     False,
@@ -341,15 +345,26 @@ st.subheader("Basic settings")
 left, right = st.columns(2)
 
 with left:
-    wn_range = st.slider(
-        "Spectral range (cm⁻¹)",
-        min_value=400,
-        max_value=4000,
-        step=25,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_wn_range"
-        ],
+    st.markdown("**Training spectral range (cm⁻¹)**")
+    lower_col, upper_col = st.columns(2)
+    lower = lower_col.number_input(
+        "Minimum (cm⁻¹)",
+        min_value=400.0,
+        max_value=4000.0,
+        step=0.0001,
+        format="%.4f",
+        key="cfg_wn_min",
     )
+    upper = upper_col.number_input(
+        "Maximum (cm⁻¹)",
+        min_value=400.0,
+        max_value=4000.0,
+        step=0.0001,
+        format="%.4f",
+        key="cfg_wn_max",
+    )
+    wn_range = (lower, upper)
+    st.caption("Only measured points within these bounds enter calibration.")
     exclude_co2 = st.checkbox(
         "Exclude CO₂ region (2300–2400 cm⁻¹)",
         key=PROFILE_WIDGET_KEYS[

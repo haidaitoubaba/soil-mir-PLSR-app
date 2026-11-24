@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from soil_mir.io.opus import OPUS_NATIVE
+
 from soil_mir.methods import (
     validation_method_label,
 )
@@ -110,6 +112,9 @@ def execute_validation_run(
                         reference_excel
                     ),
                     "output_dir": output_dir,
+                    "opus_axis_mode": getattr(
+                        next(iter(datasets.values()), None), "opus_axis_mode", OPUS_NATIVE
+                    ),
                     "analysis_settings": (
                         settings
                     ),

@@ -6,6 +6,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from soil_mir.io.opus import OPUS_LEGACY, OPUS_NATIVE
+
 from soil_mir.methods import (
     validation_method_label,
 )
@@ -35,8 +37,7 @@ st.set_page_config(
 )
 st.title("Predict")
 st.caption(
-    "Apply a saved final model to external local OPUS spectra. "
-    "Prediction behavior follows predict_external_with_plsr_model.py."
+    "Apply a saved final model to external local OPUS spectra."
 )
 
 
@@ -334,16 +335,39 @@ with output_col:
         placeholder="/path/to/results",
     )
 
+axis_mode = st.selectbox(
+    "OPUS wavenumber axis",
+    options=(None, OPUS_NATIVE, OPUS_LEGACY),
+    format_func={
+        None: "Match saved model",
+        OPUS_NATIVE: "Declared valid points (NPT)",
+        OPUS_LEGACY: "Legacy array length",
+    }.get,
+    help="Models saved before this update use the legacy reader in automatic mode. "
+    "Select declared valid points to test corrected spectra against an older model.",
+)
+crop_enabled = st.checkbox("Crop input spectra")
+crop_min = crop_max = None
+if crop_enabled:
+    st.caption(
+        "Leave either bound blank to keep that end. Between measured points, the crop "
+        "boundary is projected from the two retained points nearest that end."
+    )
+    lower_col, upper_col = st.columns(2)
+    crop_min = lower_col.number_input(
+        "Crop minimum (cm⁻¹)", min_value=0.0, value=None, step=0.01, format="%.4f"
+    )
+    crop_max = upper_col.number_input(
+        "Crop maximum (cm⁻¹)", min_value=0.0, value=None, step=0.01, format="%.4f"
+    )
+
 max_extrapolation = st.number_input(
     "Maximum endpoint extrapolation (cm⁻¹)",
     min_value=0.0,
     value=0.25,
     step=0.05,
     format="%.2f",
-    help=(
-        "Matches the external prediction script. Only tiny model-grid "
-        "boundary differences up to this limit are linearly extrapolated."
-    ),
+    help="The limit is measured from the aligned spectrum endpoints after any crop.",
 )
 
 if st.button(
@@ -404,6 +428,9 @@ if st.button(
                         float(max_extrapolation)
                     ),
                     cache_root=cache_root,
+                    opus_axis_mode=axis_mode,
+                    crop_min_cm1=crop_min,
+                    crop_max_cm1=crop_max,
                 )
 
                 bundle = result["bundle"]
@@ -414,7 +441,7 @@ if st.button(
                     )
                 )
                 timestamp = datetime.now().strftime(
-                    "%Y%m%d_%H%M%S"
+                    "%Y%m%d_%H%M%S_%f"
                 )
                 workbook_path = (
                     output_root
@@ -438,6 +465,7 @@ if st.button(
                         == "External validation"
                         else ""
                     ),
+                    input_metadata=result["input_metadata"],
                 )
                 result["workbook_path"] = (
                     workbook_path
@@ -521,6 +549,15 @@ if result:
         f"{result.get('max_extrapolation_cm1', 0.25):.2f} cm⁻¹"
     )
 
+    input_metadata = result.get("input_metadata", {})
+    if input_metadata:
+        st.caption(
+            f"OPUS axis: {input_metadata['Prediction OPUS axis mode']} · "
+            f"Aligned range: {input_metadata['Aligned minimum (cm⁻¹)']:.4f}–"
+            f"{input_metadata['Aligned maximum (cm⁻¹)']:.4f} cm⁻¹"
+        )
+        if input_metadata["Prediction OPUS axis mode"] != input_metadata["Model OPUS axis mode"]:
+            st.info("Prediction used a different OPUS axis method from model calibration.")
     metrics = result.get("metrics", {})
     sample_predictions = result[
         "sample_predictions"

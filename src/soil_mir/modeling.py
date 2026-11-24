@@ -608,6 +608,7 @@ def fit_calibration_model(
             "requested_intervals"
         ],
         "bundle_version": 3,
+        **({"opus_axis_mode": cfg["opus_axis_mode"]} if "opus_axis_mode" in cfg else {}),
         "calibration_search_results": calibration_search,
         "training_sample_ids": sorted(set(groups_clean)),
         "wavenumbers": selected_wavenumbers.copy(),

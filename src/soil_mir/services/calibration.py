@@ -9,7 +9,7 @@ import pandas as pd
 
 from soil_mir.config import ColumnConfig
 from soil_mir.io.cache import load_opus_spectra_cached
-from soil_mir.io.opus import align_spectral_library
+from soil_mir.io.opus import OPUS_NATIVE, align_spectral_library
 from soil_mir.io.reference import (
     load_property_metadata,
     read_property_sheet,
@@ -55,6 +55,7 @@ class CalibrationDataset:
     group_labels_complete: bool = False
     group_count: int = 0
     missing_group_samples: int = 0
+    opus_axis_mode: str = OPUS_NATIVE
 
 
 def _normalise_group_labels(
@@ -136,7 +137,11 @@ def load_calibration_dataset(
     cache_root: str | Path | None = None,
     ref_min: float | None = None,
     ref_max: float | None = None,
+    *,
+    opus_axis_mode: str = OPUS_NATIVE,
 ) -> CalibrationDataset:
+    if not np.isfinite([wn_min, wn_max]).all() or wn_min >= wn_max:
+        raise ValueError("The spectral minimum must be below the maximum and both must be finite.")
     columns = ColumnConfig()
     frame = read_property_sheet(
         reference_excel,
@@ -207,6 +212,7 @@ def load_calibration_dataset(
         spectra_dir,
         filenames,
         cache_root=cache_root,
+        **({"opus_axis_mode": opus_axis_mode} if opus_axis_mode != OPUS_NATIVE else {}),
     )
 
     raw_spectra = {
@@ -287,6 +293,7 @@ def load_calibration_dataset(
         group_labels=group_labels,
         wavenumbers=target_axis[mask],
         property_name=property_sheet,
+        opus_axis_mode=opus_axis_mode,
         units=units,
         transform=transform,
         exclude_co2=exclude_co2,
@@ -361,6 +368,7 @@ def run_validation_analysis(
     cfg = {
         "wn_min": float(wn_min),
         "wn_max": float(wn_max),
+        "opus_axis_mode": dataset.opus_axis_mode,
         "exclude_co2": dataset.exclude_co2,
         "co2_exclude_min": 2300.0,
         "co2_exclude_max": 2400.0,
@@ -463,6 +471,7 @@ def refit_final_model_only(
     cfg = {
         "wn_min": float(wn_min),
         "wn_max": float(wn_max),
+        "opus_axis_mode": dataset.opus_axis_mode,
         "exclude_co2": dataset.exclude_co2,
         "co2_exclude_min": 2300.0,
         "co2_exclude_max": 2400.0,
@@ -617,6 +626,7 @@ def preflight_validation_methods(
         cfg = {
             "wn_min": float(wn_min),
             "wn_max": float(wn_max),
+            "opus_axis_mode": dataset.opus_axis_mode,
             "exclude_co2": dataset.exclude_co2,
             "co2_exclude_min": 2300.0,
             "co2_exclude_max": 2400.0,
