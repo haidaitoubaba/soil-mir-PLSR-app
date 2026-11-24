@@ -143,8 +143,9 @@ def test_optional_reason_and_edit_sync(tmp_path, monkeypatch):
     for name in names:
         (tmp_path / name).write_bytes(name.encode())
     axis = np.linspace(600, 4000, 341)
-    x = np.sin(axis / 100)
-    raw = {name: (x if i < 2 else -x, axis) for i, name in enumerate(names)}
+    x = 1 + np.sin(axis / 100)
+    # Opposite centered signals with a positive baseline keep NRMSE defined.
+    raw = {name: (x if i < 2 else 2 - x, axis) for i, name in enumerate(names)}
     monkeypatch.setattr(
         spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
     )
