@@ -144,3 +144,8 @@ New models use the corrected `native_npt` reader; historical runs and models wit
 QC visualization can preview modeling preprocessing methods without changing acceptance metrics.
 Batch review applies unambiguous recommendations only and preserves recorded decisions.
 Agreed Spectra exports automatic recommendations separately from reviewed Keep and rescan lists.
+
+Dual evaluation reports replicate-ID-1 Pearson reference comparison (USDA-style) alongside
+all-pair Pearson comparison from the same cached metrics. Advanced acceptance and review
+remain all-pairwise; sensitivity tables use comparable complete groups only. Quick Compare
+numerical equivalence is not established.

@@ -222,6 +222,62 @@ def classify_pair(metrics, criteria):
     return status, reasons
 
 
+def compare_strategies(scans, entries, threshold, expected=3):
+    """Same raw Pearson coefficients; only the required edge sets differ.
+
+    Reference is replicate ID 1, never the first filename or first readable scan.
+    An incomplete group is not silently accepted under either strategy.
+    """
+    ref = [s.filename for s in scans if s.replicate == 1]
+    reference = ref[0] if len(ref) == 1 else ""
+    names = {s.filename for s in scans}
+    wanted = {tuple(sorted(pair)) for pair in combinations(names, 2)}
+    metrics = {}
+    for a, b, m, _ in entries:
+        value = None if m is None else m.get("r")
+        metrics[tuple(sorted((a.filename, b.filename)))] = (
+            float(value) if value is not None and np.isfinite(value) else None
+        )
+    complete = (len(scans) == len(names) == expected and not any(
+        group_issues(scans, expected).values()
+    ) and len(entries) == len(metrics) and set(metrics) == wanted)
+    reference_edges = [key for key in metrics if reference and reference in key]
+    valid = complete and all(v is not None for v in metrics.values())
+    ref_valid = complete and len(reference_edges) == expected - 1 and all(
+        metrics[key] is not None for key in reference_edges
+    )
+    ref_passes = sum(metrics[key] is not None and metrics[key] > threshold / 100
+                     for key in reference_edges)
+    all_passes = sum(v is not None and v > threshold / 100 for v in metrics.values())
+    ref_status = ("Pass" if ref_passes == expected - 1 else "Not pass") if ref_valid else (
+        "Incomplete"
+    )
+    all_status = ("Pass" if all_passes == len(wanted) else "Not pass") if valid else (
+        "Incomplete"
+    )
+    comparable = valid and ref_valid
+    agreement = ("Agree" if ref_status == all_status else "Disagree") if comparable else (
+        "Not comparable"
+    )
+    ref_values = [metrics[key] for key in reference_edges if metrics[key] is not None]
+    all_values = [v for v in metrics.values() if v is not None]
+    return {
+        "Reference file": reference,
+        "USDA-style status": ref_status,
+        "USDA-style pairs passed": ref_passes,
+        "USDA-style expected pairs": expected - 1,
+        "USDA-style min similarity (%)": 100 * min(ref_values) if ref_valid else None,
+        "All-pairwise Pearson status": all_status,
+        "All-pairwise Pearson pairs passed": all_passes,
+        "All-pairwise expected pairs": expected * (expected - 1) // 2,
+        "All-pairwise Pearson min similarity (%)": 100 * min(all_values) if valid else None,
+        "Method agreement": agreement,
+        "Replicate 1 suspected (Pearson)": bool(
+            valid and expected == 3 and all_passes == 1 and ref_passes == 0
+        ),
+    }
+
+
 def diagnose(scans, pairs, expected=3):
     """Return shared sample and file-level decisions from classified edges.
 

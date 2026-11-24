@@ -22,3 +22,6 @@ implementation is not asserted to reproduce OPUS Quick Compare.
 - Advanced regional settings, low-wavenumber diagnostic window, visual-only preprocessing.
 - Simplified replicate diagnoses and explicit batch application of unambiguous recommendations.
 - Separate agreed spectra, review decisions and rescan exports; no original files modified.
+
+- Dual evaluation: first-replicate Pearson versus full pairwise Pearson, with method agreement,
+  comparable-group pass rates and threshold sensitivity exports; active all-pair review unchanged.

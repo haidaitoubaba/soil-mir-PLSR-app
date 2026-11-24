@@ -204,7 +204,8 @@ def build_manifest(batch, criteria, tables, decisions, *, freeze=False,
         "automatic_results": {
             name: json.loads(tables[name].to_json(orient="records", double_precision=15))
             for name in ("Sample QC", "Pairwise QC", "Regional QC", "File QC", "Rescan List",
-                         "Agreed Spectra", "Review decisions")
+                         "Agreed Spectra", "Review decisions", "Method Comparison",
+                         "Threshold Sensitivity")
         },
         "selection": selection,
     }

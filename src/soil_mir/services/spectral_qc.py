@@ -15,7 +15,7 @@ from soil_mir.io.opus import list_opus_files, read_opus_spectrum, validate_waven
 from soil_mir.preprocessing import fit_transform_preprocessor
 from soil_mir.services.qc_manifest import digest_file, resolve_groups
 from soil_mir.qc import (
-    REGIONS, align_group, classify_pair, diagnose,
+    REGIONS, align_group, classify_pair, compare_strategies, diagnose,
     group_issues, mad_threshold, pair_metrics,
 )
 
@@ -227,7 +227,7 @@ def recommended_reviews(tables, existing):
 def evaluate_batch(batch, criteria, decisions=None):
     """Reclassify cached pair metrics without reading or aligning spectra again."""
     decisions = decisions or {}
-    samples, pairs, regional, files, rescans = [], [], [], [], []
+    samples, pairs, regional, files, rescans, comparison = [], [], [], [], [], []
     for sample, scans in batch.groups.items():
         entries, group_error = batch.pair_data[sample]
         edges, pair_rows = [], []
@@ -241,6 +241,7 @@ def evaluate_batch(batch, criteria, decisions=None):
                 "Replicate A": a.replicate, "Replicate B": b.replicate,
                 "File A": a.filename, "File B": b.filename,
                 "Similarity (%)": m["r"] * 100 if m else None,
+                "Reference comparison": a.replicate == 1 or b.replicate == 1,
                 "RMSE (AU)": m["rmse"] if m else None,
                 "NRMSE (%)": m["nrmse"] if m else None,
                 "SAM (degrees)": m["sam"] if m else None,
@@ -276,6 +277,8 @@ def evaluate_batch(batch, criteria, decisions=None):
                 })
         pairs.extend(pair_rows)
         d = diagnose(scans, edges, batch.expected)
+        dual = compare_strategies(scans, entries, criteria.similarity, batch.expected)
+        comparison.append({"Sample ID": sample, **dual, "Active all-pair QC": d["status"]})
         metrics = [m for _, _, m, _ in entries]
         reasons = [row["Reason"] for row in pair_rows if row["Reason"]]
         if group_error:
@@ -291,7 +294,10 @@ def evaluate_batch(batch, criteria, decisions=None):
             "Max RMSE (AU)": _extreme(metrics, "rmse", max),
             "Max SAM (degrees)": _extreme(metrics, "sam", max),
             "Pairs passed": d["passed"], "Expected pairs": d["expected_pairs"],
-            "Sample QC": d["status"], "Suspected Replicate": d["suspected_replicate"],
+            "Sample QC": d["status"], "USDA-style status": dual["USDA-style status"],
+            "All-pairwise Pearson status": dual["All-pairwise Pearson status"],
+            "Method agreement": dual["Method agreement"],
+            "Suspected Replicate": d["suspected_replicate"],
             "Suspected File": d["suspected_file"] or "",
             "Review Candidate Files": "; ".join(d["review_candidates"]),
             "Diagnosis Reason": "; ".join(dict.fromkeys(reasons)),
@@ -398,6 +404,39 @@ def evaluate_batch(batch, criteria, decisions=None):
             "Decision source": manual.get("source", "Manual" if manual else ""),
         })
     sample_frame = pd.DataFrame(samples)
+    comparison_frame = pd.DataFrame(comparison, columns=[
+        "Sample ID", "Reference file", "USDA-style status", "USDA-style pairs passed",
+        "USDA-style expected pairs", "USDA-style min similarity (%)",
+        "All-pairwise Pearson status", "All-pairwise Pearson pairs passed",
+        "All-pairwise expected pairs", "All-pairwise Pearson min similarity (%)",
+        "Method agreement", "Replicate 1 suspected (Pearson)", "Active all-pair QC",
+    ])
+    sensitivity = []
+    for threshold in sorted({99.3, 99.5, 99.6, 99.7, 99.8, criteria.similarity}):
+        comparable = comparison_frame.loc[
+            comparison_frame["Method agreement"] != "Not comparable"
+        ]
+        # Threshold comparison uses unrounded, cached pair metrics, not rounded exports.
+        u, a, agree, first_suspect = 0, 0, 0, 0
+        for sample in comparable["Sample ID"]:
+            row = compare_strategies(
+                batch.groups[sample], batch.pair_data[sample][0], threshold, batch.expected
+            )
+            u += row["USDA-style status"] == "Pass"
+            a += row["All-pairwise Pearson status"] == "Pass"
+            agree += row["Method agreement"] == "Agree"
+            first_suspect += row["Replicate 1 suspected (Pearson)"]
+        n = len(comparable)
+        sensitivity.append({
+            "Threshold (%)": threshold, "Comparable samples": n,
+            "Not comparable": len(comparison_frame) - n,
+            "USDA-style pass": u, "All-pairwise Pearson pass": a,
+            "USDA-style pass rate (%)": 100 * u / n if n else None,
+            "All-pairwise pass rate (%)": 100 * a / n if n else None,
+            "Agreement (%)": 100 * agree / n if n else None,
+            "USDA pass / all-pair not pass": u - a,
+            "Replicate 1 suspected (triplets)": first_suspect,
+        })
     pair_frame = pd.DataFrame(pairs)
     file_frame = pd.DataFrame(files)
     agreed_columns = [
@@ -460,6 +499,9 @@ def evaluate_batch(batch, criteria, decisions=None):
         "Exclude CO2 globally": batch.exclude_co2, "OPUS mode": "native_npt",
         "Regions": str(batch.regions), "Criteria": str(asdict(criteria)),
         "Pearson threshold (%)": criteria.similarity, "Comparison": "strict >",
+        "Comparison strategy": "Dual evaluation (same Pearson metrics)",
+        "Reference strategy": "Replicate ID 1; Pearson only; not validated against Quick Compare",
+        "Review strategy": "Active all-pair QC; independent of USDA-style status",
         "NRMSE denominator": "RMS of mean pair spectrum",
         "Threshold provenance": "User settings; NRMSE limits exploratory",
         "Absorbance block": "AB only",
@@ -471,6 +513,8 @@ def evaluate_batch(batch, criteria, decisions=None):
         "Regional QC": pd.DataFrame(regional), "File QC": file_frame,
         "Replicate Diagnosis": file_frame.copy(), "Rescan List": rescan_frame,
         "Agreed Spectra": agreed, "Review decisions": review,
+        "Method Comparison": comparison_frame,
+        "Threshold Sensitivity": pd.DataFrame(sensitivity),
         "Settings": pd.DataFrame(list(settings.items()), columns=["Field", "Value"]),
         "Threshold diagnostics": pd.DataFrame(diagnostics),
     }

@@ -211,7 +211,7 @@ if st.session_state.get("qc_review_criteria") != criteria:
     st.info("Threshold changed: cached metrics reused; review decisions require reconfirmation.")
 tables = evaluate_batch(data, criteria, st.session_state.qc_reviews)
 overview = tables["Overview"].set_index("Metric")["Value"]
-st.subheader("QC summary")
+st.subheader("QC summary — active all-pair QC")
 for col, key in zip(st.columns(4), ["Pass", "Review", "Fail", "Incomplete"]):
     col.metric(key, int(overview[key]))
 st.caption(
@@ -240,6 +240,44 @@ else:
     a, b = st.columns(2)
     a.metric("Pass rate (all identified)", f"{overview['Sample pass rate (%)']:.2f}%")
     b.metric("Pass rate (evaluable only)", f"{overview['Evaluable sample pass rate (%)']:.2f}%")
+st.subheader("Dual evaluation — comparison of strategies")
+st.caption(
+    "Both use the same raw Pearson coefficients and strict threshold. USDA-style uses "
+    "replicate ID 1 as reference (self = 100%); all-pairwise tests every pair. "
+    "Not validated against OPUS Quick Compare. Advanced NRMSE/region gates affect only "
+    "active all-pair QC and review decisions, not this Pearson-only comparison."
+)
+comparison = tables["Method Comparison"]
+sensitivity = tables["Threshold Sensitivity"]
+current = sensitivity.loc[sensitivity["Threshold (%)"] == criteria.similarity].iloc[0]
+n = int(current["Comparable samples"])
+a, b, c = st.columns(3)
+a.metric("USDA-style pass rate", f"{current['USDA-style pass rate (%)']:.2f}%" if n else "N/A")
+b.metric("All-pairwise Pearson pass rate",
+         f"{current['All-pairwise pass rate (%)']:.2f}%" if n else "N/A")
+c.metric("Method agreement", f"{current['Agreement (%)']:.2f}%" if n else "N/A")
+st.caption(
+    f"Comparable samples: {n}; not comparable: {int(current['Not comparable'])}; "
+    f"USDA-style pass / all-pair not pass: {int(current['USDA pass / all-pair not pass'])}."
+)
+with st.expander("Method comparison and threshold sensitivity"):
+    view = st.radio("Comparison view", ["Both", "Disagreements", "Not comparable"],
+                    horizontal=True)
+    displayed = comparison
+    if view == "Disagreements":
+        displayed = comparison.loc[comparison["Method agreement"] == "Disagree"]
+    elif view == "Not comparable":
+        displayed = comparison.loc[comparison["Method agreement"] == "Not comparable"]
+    st.dataframe(displayed, hide_index=True)
+    st.download_button(
+        "Export Method Comparison", comparison.to_csv(index=False).encode("utf-8-sig"),
+        file_name="Method_Comparison.csv", mime="text/csv",
+    )
+    st.dataframe(sensitivity, hide_index=True)
+    st.download_button(
+        "Export Threshold Sensitivity", sensitivity.to_csv(index=False).encode("utf-8-sig"),
+        file_name="Threshold_Sensitivity.csv", mime="text/csv",
+    )
 summary = tables["Sample QC"]
 if not summary.empty:
     statuses = st.multiselect(
@@ -263,6 +301,9 @@ if not summary.empty:
     sample_row = summary.loc[summary["Sample ID"] == sample].iloc[0]
     st.write("**Suspected file:**", sample_row["Suspected File"] or "None uniquely identified")
     st.write("**Recommended action:**", sample_row["Recommended Action"])
+    st.write("**USDA-style:**", sample_row["USDA-style status"],
+             "| **All-pairwise Pearson:**", sample_row["All-pairwise Pearson status"])
+    st.dataframe(comparison.loc[comparison["Sample ID"] == sample], hide_index=True)
     pair_frame = tables["Pairwise QC"]
     if not pair_frame.empty:
         st.dataframe(pair_frame.loc[pair_frame["Sample ID"] == sample], hide_index=True)

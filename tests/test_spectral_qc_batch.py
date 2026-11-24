@@ -201,3 +201,60 @@ def test_preview_is_not_qc_preprocessing(tmp_path, monkeypatch):
     assert not np.array_equal(smooth[names[0]], x[::-1])
     after = spectral_qc.evaluate_batch(batch, Criteria())["Pairwise QC"]
     pd.testing.assert_frame_equal(before, after)
+
+
+
+def test_dual_evaluation_uses_cached_pearson_and_reference_id(tmp_path, monkeypatch):
+    names = [f"NSSH_{s}_{i}_A{i}.0" for s in (1, 2, 3) for i in (1, 2, 3)]
+    for name in names:
+        (tmp_path / name).touch()
+    axis = np.linspace(400, 4000, 361)
+    x = 1 + np.sin(axis / 100)
+    noise = np.cos(axis / 100)
+    values = [x, x, x, x + .2*noise, x, x, x, x + .05*noise, x - .05*noise]
+    raw = {name: (value, axis) for name, value in zip(names, values)}
+    calls = []
+
+    def read(*args, **kwargs):
+        calls.append(1)
+        return raw, None
+
+    monkeypatch.setattr(spectral_qc, "load_opus_spectra_cached", read)
+    batch = spectral_qc.prepare_batch(tmp_path)
+    tables = spectral_qc.evaluate_batch(batch, Criteria())
+    comp = tables["Method Comparison"]
+    assert comp["USDA-style status"].tolist() == ["Pass", "Not pass", "Pass"]
+    assert comp["All-pairwise Pearson status"].tolist() == ["Pass", "Not pass", "Not pass"]
+    assert comp["Method agreement"].tolist() == ["Agree", "Agree", "Disagree"]
+    assert comp["Replicate 1 suspected (Pearson)"].tolist() == [False, True, False]
+    assert comp["Reference file"].tolist() == names[::3]
+    sens = tables["Threshold Sensitivity"].set_index("Threshold (%)")
+    assert sens.loc[99.6, "USDA-style pass"] == 2
+    assert sens.loc[99.6, "All-pairwise Pearson pass"] == 1
+    assert sens.loc[99.6, "USDA pass / all-pair not pass"] == 1
+    advanced = spectral_qc.evaluate_batch(batch, Criteria(advanced=True))
+    pd.testing.assert_frame_equal(
+        comp.drop(columns="Active all-pair QC"),
+        advanced["Method Comparison"].drop(columns="Active all-pair QC"),
+    )
+    assert len(calls) == 1
+
+
+def test_dual_evaluation_four_replicates_and_missing_reference():
+    from itertools import combinations
+    from soil_mir.qc import Scan, compare_strategies
+
+    scans = [Scan(f"file_{i}.0", "sample", i) for i in (4, 2, 1, 3)]
+    entries = [(a, b, {"r": .998 if 1 in (a.replicate, b.replicate) else .993}, "")
+               for a, b in combinations(scans, 2)]
+    row = compare_strategies(scans, entries, 99.6, 4)
+    assert row["Reference file"] == "file_1.0"
+    assert row["USDA-style pairs passed"] == 3
+    assert row["All-pairwise expected pairs"] == 6
+    assert row["Method agreement"] == "Disagree"
+    assert compare_strategies(scans, entries, 99.8, 4)["USDA-style status"] == "Not pass"
+    no_reference = [scan for scan in scans if scan.replicate != 1]
+    remaining = [entry for entry in entries if 1 not in (entry[0].replicate, entry[1].replicate)]
+    missing = compare_strategies(no_reference, remaining, 99.6, 4)
+    assert missing["Reference file"] == ""
+    assert missing["Method agreement"] == "Not comparable"
