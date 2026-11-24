@@ -7,6 +7,10 @@ from pathlib import Path
 import numpy as np
 
 
+OPUS_NATIVE = "native_npt"
+OPUS_LEGACY = "legacy_array_length"
+
+
 @dataclass(frozen=True)
 class OpusDirectorySummary:
     directory: Path
@@ -136,7 +140,44 @@ def inspect_opus_directory(directory: str | Path) -> OpusDirectorySummary:
     )
 
 
-def read_opus_spectrum(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
+def crop_spectrum(
+    values: np.ndarray,
+    axis: np.ndarray,
+    lower: float | None = None,
+    upper: float | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Crop on the native grid and project off-grid boundaries from retained points."""
+    axis = validate_wavenumbers(axis)
+    values = np.asarray(values, dtype=float)
+    if values.shape != axis.shape or not np.isfinite(values).all():
+        raise ValueError("Spectrum values must be finite and match their wavenumber axis.")
+    if any(bound is not None and not np.isfinite(bound) for bound in (lower, upper)):
+        raise ValueError("Crop bounds must be finite.")
+    if lower is not None and upper is not None and lower >= upper:
+        raise ValueError("The crop minimum must be below the maximum.")
+    descending = axis[0] > axis[-1]
+    if descending:
+        values, axis = values[::-1], axis[::-1]
+    low = axis[0] if lower is None else max(axis[0], lower)
+    high = axis[-1] if upper is None else min(axis[-1], upper)
+    keep = (axis >= low) & (axis <= high)
+    x, y = axis[keep], values[keep]
+    if len(x) < 2:
+        raise ValueError("The requested crop must retain at least two measured points.")
+    left_value = y[0] + (low - x[0]) * (y[1] - y[0]) / (x[1] - x[0])
+    right_value = y[-1] + (high - x[-1]) * (y[-1] - y[-2]) / (x[-1] - x[-2])
+    if low < x[0]:
+        x, y = np.insert(x, 0, low), np.insert(y, 0, left_value)
+    if high > x[-1]:
+        x, y = np.append(x, high), np.append(y, right_value)
+    return (y[::-1], x[::-1]) if descending else (y, x)
+
+
+def read_opus_spectrum(
+    path: str | Path, *, opus_axis_mode: str = OPUS_NATIVE
+) -> tuple[np.ndarray, np.ndarray]:
+    if opus_axis_mode not in (OPUS_NATIVE, OPUS_LEGACY):
+        raise ValueError(f"Unknown OPUS axis mode: {opus_axis_mode}")
     try:
         from brukeropusreader import read_file
     except ImportError as exc:
@@ -153,19 +194,20 @@ def read_opus_spectrum(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
     if absorbance is None:
         raise ValueError(f"No supported absorbance block found in {path}")
 
-    axis = None
-    for key in (
-        "AB Data Parameter",
-        "AB_Data_Parameter",
-        "Sc Data Parameter",
-        "IgSm Data Parameter",
-    ):
-        if key in data:
-            params = data[key]
-            axis = np.linspace(float(params["FXV"]), float(params["LXV"]), len(absorbance))
-            break
-    if axis is None:
+    status_keys = (
+        "AB Data Parameter", "AB_Data_Parameter", "Sc Data Parameter", "IgSm Data Parameter"
+    )
+    if opus_axis_mode == OPUS_NATIVE:
+        status_keys = (f"{key} Data Parameter", f"{key}_Data_Parameter", *status_keys)
+    params = next((data[name] for name in status_keys if name in data), None)
+    if params is None:
         raise ValueError(f"Wavenumber metadata missing in {path}")
+    if opus_axis_mode == OPUS_NATIVE:
+        declared_count = float(params.get("NPT", len(absorbance)))
+        if not declared_count.is_integer() or not 2 <= declared_count <= len(absorbance):
+            raise ValueError(f"Invalid OPUS point count {declared_count:g} in {path}")
+        absorbance = absorbance[:int(declared_count)] * float(params.get("CSF", 1.0))
+    axis = np.linspace(float(params["FXV"]), float(params["LXV"]), len(absorbance))
     if not np.isfinite(absorbance).all() or not np.isfinite(axis).all():
         raise ValueError(f"Non-finite spectral data in {path}")
     return absorbance, validate_wavenumbers(axis)

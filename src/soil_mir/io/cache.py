@@ -7,10 +7,10 @@ from pathlib import Path
 import joblib
 import numpy as np
 
-from soil_mir.io.opus import read_opus_spectrum, validate_wavenumbers
+from soil_mir.io.opus import OPUS_NATIVE, read_opus_spectrum, validate_wavenumbers
 
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -32,10 +32,12 @@ def _file_signature(path: Path) -> dict:
 def cache_path_for_directory(
     cache_root: str | Path,
     spectra_dir: str | Path,
+    *,
+    opus_axis_mode: str = OPUS_NATIVE,
 ) -> Path:
     root = Path(cache_root).expanduser()
     directory = Path(spectra_dir).expanduser().resolve()
-    digest = sha256(str(directory).encode("utf-8")).hexdigest()[:16]
+    digest = sha256(f"{opus_axis_mode}:{directory}".encode("utf-8")).hexdigest()[:16]
     return root / f"opus_{digest}.joblib"
 
 
@@ -90,6 +92,8 @@ def load_opus_spectra_cached(
     spectra_dir: str | Path,
     filenames: list[str] | tuple[str, ...],
     cache_root: str | Path | None = None,
+    *,
+    opus_axis_mode: str = OPUS_NATIVE,
 ) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], OpusCacheStats]:
     directory = Path(spectra_dir).expanduser().resolve()
     if not directory.is_dir():
@@ -97,7 +101,7 @@ def load_opus_spectra_cached(
 
     requested = tuple(dict.fromkeys(str(name) for name in filenames))
     cache_path = (
-        cache_path_for_directory(cache_root, directory)
+        cache_path_for_directory(cache_root, directory, opus_axis_mode=opus_axis_mode)
         if cache_root is not None
         else None
     )
@@ -124,7 +128,10 @@ def load_opus_spectra_cached(
             axis = validate_wavenumbers(entry["axis"])
             hits += 1
         else:
-            values, axis = read_opus_spectrum(path)
+            if opus_axis_mode == OPUS_NATIVE:
+                values, axis = read_opus_spectrum(path)
+            else:
+                values, axis = read_opus_spectrum(path, opus_axis_mode=opus_axis_mode)
             payload["entries"][name] = {
                 "signature": signature,
                 "values": np.asarray(values, dtype=float),

@@ -7,6 +7,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+from soil_mir import __version__
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,7 +70,7 @@ def test_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> None:
             "--output-dir",
             str(output_dir),
             "--label",
-            "v0.2.3",
+            f"v{__version__}",
             "--commit",
             "cafebabe",
         ],
@@ -79,13 +81,13 @@ def test_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> None:
     )
 
     archive = Path(completed.stdout.strip())
-    assert archive.name == "soil-mir-app-v0.2.3-mac.tar.gz"
+    assert archive.name == f"soil-mir-app-v{__version__}-mac.tar.gz"
 
     with tarfile.open(archive, "r:gz") as handle:
         roots = {name.split("/", 1)[0] for name in handle.getnames()}
-        assert roots == {"soil-mir-app-v0.2.3"}
+        assert roots == {f"soil-mir-app-v{__version__}"}
         readme = handle.extractfile(
-            "soil-mir-app-v0.2.3/MAC_RELEASE_README.txt"
+            f"soil-mir-app-v{__version__}/MAC_RELEASE_README.txt"
         )
         assert readme is not None
         text = readme.read().decode("utf-8")
@@ -159,7 +161,7 @@ def test_windows_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> N
             "--output-dir",
             str(output_dir),
             "--label",
-            "v0.2.3",
+            f"v{__version__}",
             "--commit",
             "cafebabe",
         ],
@@ -170,13 +172,13 @@ def test_windows_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> N
     )
 
     archive = Path(completed.stdout.strip())
-    assert archive.name == "soil-mir-app-v0.2.3-windows.zip"
+    assert archive.name == f"soil-mir-app-v{__version__}-windows.zip"
 
     with zipfile.ZipFile(archive) as handle:
         roots = {name.split("/", 1)[0] for name in handle.namelist()}
-        assert roots == {"soil-mir-app-v0.2.3"}
+        assert roots == {f"soil-mir-app-v{__version__}"}
         text = handle.read(
-            "soil-mir-app-v0.2.3/WINDOWS_RELEASE_README.txt"
+            f"soil-mir-app-v{__version__}/WINDOWS_RELEASE_README.txt"
         ).decode("utf-8")
         assert "Windows release\n" in text
         assert "Windows release candidate" not in text

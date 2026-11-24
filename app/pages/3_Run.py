@@ -6,11 +6,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from soil_mir.io.opus import OPUS_LEGACY, OPUS_NATIVE
 from soil_mir.preprocessing import LEGACY_PREPROCESSING_NAMES
 from soil_mir.reporting import (
     read_run_manifest,
 )
 from soil_mir.services.history import (
+    load_run_config,
     pending_run_keys,
 )
 from soil_mir.methods import (
@@ -211,11 +213,13 @@ resume_run_dir_text = st.session_state.get(
     "",
 )
 resume_manifest = None
+opus_axis_mode = OPUS_NATIVE
 if resume_run_dir_text:
     try:
         resume_manifest = read_run_manifest(
             resume_run_dir_text
         )
+        opus_axis_mode = load_run_config(resume_run_dir_text).get("opus_axis_mode", OPUS_LEGACY)
     except Exception as exc:
         st.warning(
             "The selected run can no longer be resumed: "
@@ -262,6 +266,7 @@ preflight_payload = {
     "properties": properties,
     "methods": methods,
     "settings": settings,
+    "opus_axis_mode": opus_axis_mode,
     "reference_ranges": reference_ranges,
     "fallback_exclude_co2": bool(
         st.session_state.get(
@@ -357,6 +362,7 @@ if st.button(
                         )
                     ),
                     cache_root=cache_root,
+                    **({"opus_axis_mode": opus_axis_mode} if opus_axis_mode != OPUS_NATIVE else {}),
                     ref_min=property_range.get(
                         "min"
                     ),
