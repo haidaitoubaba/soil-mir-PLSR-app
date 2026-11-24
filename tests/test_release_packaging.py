@@ -7,6 +7,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from soil_mir import __version__
 
 
@@ -34,7 +36,7 @@ def test_mac_release_bundle_preserves_launcher_permission_after_extract(tmp_path
 
     archive = Path(completed.stdout.strip())
     assert archive.exists()
-    assert archive.name.endswith(".tar.gz")
+    assert archive.name == f"soil-mir-app-v{__version__}-test-rc-mac.tar.gz"
 
     extract_dir = tmp_path / "extracted"
     extract_dir.mkdir()
@@ -117,7 +119,7 @@ def test_windows_release_bundle_contains_cross_platform_launcher(tmp_path: Path)
 
     archive = Path(completed.stdout.strip())
     assert archive.exists()
-    assert archive.name.endswith("-windows.zip")
+    assert archive.name == f"soil-mir-app-v{__version__}-test-rc-windows.zip"
 
     with zipfile.ZipFile(archive) as handle:
         names = handle.namelist()
@@ -182,3 +184,48 @@ def test_windows_final_release_tag_uses_clean_artifact_name(tmp_path: Path) -> N
         ).decode("utf-8")
         assert "Windows release\n" in text
         assert "Windows release candidate" not in text
+
+
+@pytest.mark.parametrize("prefix", ["v", ""])
+@pytest.mark.parametrize("platform", ["mac", "windows"])
+def test_versioned_release_candidate_uses_clean_artifact_name(
+    tmp_path: Path, prefix: str, platform: str
+) -> None:
+    label = f"{prefix}{__version__}-rc1"
+    expected_root = f"soil-mir-app-v{__version__}-rc1"
+    extension = "tar.gz" if platform == "mac" else "zip"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            f"scripts/build_{platform}_release.py",
+            "--output-dir",
+            str(tmp_path / "dist"),
+            "--label",
+            label,
+            "--commit",
+            "cafebabe",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    archive = Path(completed.stdout.strip())
+    assert archive.name == f"{expected_root}-{platform}.{extension}"
+    assert archive.is_file()
+
+    if platform == "mac":
+        with tarfile.open(archive, "r:gz") as handle:
+            assert {name.split("/", 1)[0] for name in handle.getnames()} == {expected_root}
+            launcher = handle.getmember(f"{expected_root}/run_app.command")
+            assert launcher.mode == 0o755
+            readme = handle.extractfile(f"{expected_root}/MAC_RELEASE_README.txt")
+            assert readme is not None
+            assert "macOS release candidate" in readme.read().decode("utf-8")
+    else:
+        with zipfile.ZipFile(archive) as handle:
+            assert {name.split("/", 1)[0] for name in handle.namelist()} == {expected_root}
+            assert handle.testzip() is None
+            assert f"{expected_root}/run_app.bat" in handle.namelist()
+            readme = handle.read(f"{expected_root}/WINDOWS_RELEASE_README.txt")
+            assert "Windows release candidate" in readme.decode("utf-8")
