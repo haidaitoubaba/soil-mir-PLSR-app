@@ -174,7 +174,8 @@ def crop_spectrum(
 
 
 def read_opus_spectrum(
-    path: str | Path, *, opus_axis_mode: str = OPUS_NATIVE
+    path: str | Path, *, opus_axis_mode: str = OPUS_NATIVE,
+    require_absorbance: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     if opus_axis_mode not in (OPUS_NATIVE, OPUS_LEGACY):
         raise ValueError(f"Unknown OPUS axis mode: {opus_axis_mode}")
@@ -187,7 +188,8 @@ def read_opus_spectrum(
 
     data = read_file(str(path))
     absorbance = None
-    for key in ("AB", "IgSm", "ScSm", "ScRf", "Sc"):
+    blocks = ("AB",) if require_absorbance else ("AB", "IgSm", "ScSm", "ScRf", "Sc")
+    for key in blocks:
         if key in data and hasattr(data[key], "__len__"):
             absorbance = np.asarray(data[key], dtype=float)
             break
@@ -197,7 +199,9 @@ def read_opus_spectrum(
     status_keys = (
         "AB Data Parameter", "AB_Data_Parameter", "Sc Data Parameter", "IgSm Data Parameter"
     )
-    if opus_axis_mode == OPUS_NATIVE:
+    if require_absorbance:
+        status_keys = ("AB Data Parameter", "AB_Data_Parameter")
+    elif opus_axis_mode == OPUS_NATIVE:
         status_keys = (f"{key} Data Parameter", f"{key}_Data_Parameter", *status_keys)
     params = next((data[name] for name in status_keys if name in data), None)
     if params is None:

@@ -68,18 +68,29 @@ def prepare_batch(
     # A broken file must never prevent valid groups from being evaluated.
     try:
         raw, _ = load_opus_spectra_cached(
-            directory, names, cache_root,
+            directory, names, cache_root, require_absorbance=True,
             **({"content_hashes": content_hashes} if cache_root else {}),
         )
     except Exception:
         for name in names:
             try:
-                raw[name] = read_opus_spectrum(Path(directory) / name)
+                raw[name] = read_opus_spectrum(Path(directory) / name, require_absorbance=True)
             except Exception as exc:
                 errors[name] = str(exc)
+    # Reject unusable individual scans before any attribution.
+    for name, (values, axis) in raw.items():
+        mask = (axis >= lower) & (axis <= upper)
+        if exclude_co2:
+            mask &= (axis < 2300) | (axis > 2400)
+        retained = values[mask]
+        if axis.min() > lower or axis.max() < upper:
+            errors[name] = "Requested range not fully covered"
+        elif len(retained) < 2 or np.linalg.norm(retained - retained.mean()) <= 1e-12:
+            errors[name] = "Constant spectrum or insufficient valid spectral points"
     count = max(1, len(groups))
     for i, (sample, scans) in enumerate(groups.items(), 1):
-        available = {s.filename: raw[s.filename] for s in scans if s.filename in raw}
+        available = {s.filename: raw[s.filename] for s in scans
+                     if s.filename in raw and s.filename not in errors}
         axis, spectra = None, {}
         group_error = ""
         if available:
@@ -164,6 +175,11 @@ def evaluate_batch(batch, criteria, decisions=None):
                 regional.append({
                     "Sample ID": sample, "File A": a.filename, "File B": b.filename,
                     "Lower": low, "Upper": high, "RMSE (AU)": value,
+                    "Actual minimum": m["regional_info"][(low, high)][0] if m else None,
+                    "Actual maximum": m["regional_info"][(low, high)][1] if m else None,
+                    "Points": m["regional_info"][(low, high)][2] if m else None,
+                    "Pass limit (AU)": limits[0] if limits else None,
+                    "Fail limit (AU)": limits[1] if limits else None,
                     "Warning": warning,
                 })
         pairs.extend(pair_rows)
@@ -307,6 +323,7 @@ def evaluate_batch(batch, criteria, decisions=None):
         "Pearson threshold (%)": criteria.similarity, "Comparison": "strict >",
         "NRMSE denominator": "RMS of mean pair spectrum",
         "Threshold provenance": "User settings; NRMSE limits exploratory",
+        "Absorbance block": "AB only",
         "Timestamp UTC": datetime.now(timezone.utc).isoformat(),
     }
     return {

@@ -147,6 +147,7 @@ def pair_metrics(x, y, axis, *, exclude_co2=False, regions=REGIONS):
             or not np.isfinite(x).all() or not np.isfinite(y).all()):
         raise ValueError("Invalid paired spectra.")
     regional = {}
+    regional_info = {}
     for low, high in regions:
         if not np.isfinite([low, high]).all() or low >= high:
             raise ValueError("Invalid regional bounds.")
@@ -155,6 +156,11 @@ def pair_metrics(x, y, axis, *, exclude_co2=False, regions=REGIONS):
         # Same-grid cropping can omit less than one native step at each end.
         step = float(np.median(np.abs(np.diff(axis))))
         complete = complete or (axis.min() - low < step and high - axis.max() < step)
+        regional_info[(low, high)] = (
+            float(axis[mask].min()) if mask.any() else None,
+            float(axis[mask].max()) if mask.any() else None,
+            int(mask.sum()),
+        )
         regional[(low, high)] = (
             float(np.sqrt(np.mean((x[mask] - y[mask]) ** 2)))
             if complete and mask.sum() >= 2 else None
@@ -180,6 +186,7 @@ def pair_metrics(x, y, axis, *, exclude_co2=False, regions=REGIONS):
         "mean_difference": float(delta.mean()),
         "points": len(x),
         "regional": regional,
+        "regional_info": regional_info,
     }
 
 

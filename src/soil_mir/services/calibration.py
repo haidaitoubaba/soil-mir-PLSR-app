@@ -229,8 +229,8 @@ def load_calibration_dataset(
         filenames,
         cache_root=cache_root,
         **({"opus_axis_mode": opus_axis_mode} if opus_axis_mode != OPUS_NATIVE else {}),
-        **({"content_hashes": {f["filename"]: f["sha256"] for f in qc_manifest["files"]}}
-           if qc_manifest else {}),
+        **({"content_hashes": {f["filename"]: f["sha256"] for f in qc_manifest["files"]},
+            "require_absorbance": True} if qc_manifest else {}),
     )
 
     raw_spectra = {

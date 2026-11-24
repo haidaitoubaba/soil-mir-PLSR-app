@@ -20,7 +20,7 @@ def test_standalone_batch_threshold_and_report(tmp_path, monkeypatch):
     }
     calls = []
 
-    def read(directory, files, cache_root):
+    def read(directory, files, cache_root, **kwargs):
         calls.append(files)
         return raw, None
 
@@ -47,10 +47,10 @@ def test_bad_file_does_not_abort_batch(tmp_path, monkeypatch):
         (tmp_path / name).touch()
     axis = np.linspace(600, 4000, 341)
 
-    def bad_cache(*args):
+    def bad_cache(*args, **kwargs):
         raise ValueError("unreadable")
 
-    def read(path):
+    def read(path, **kwargs):
         if path.name == names[2]:
             raise ValueError("unreadable")
         return np.sin(axis / 100), axis
