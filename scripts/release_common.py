@@ -80,9 +80,13 @@ def safe_label(value: str) -> str:
 def release_identity(version: str, label: str) -> tuple[str, str, bool]:
     clean_label = safe_label(label)
     is_final_release = clean_label in {version, f"v{version}"}
-    bundle_root = (
-        f"soil-mir-app-v{version}"
-        if is_final_release
-        else f"soil-mir-app-v{version}-{clean_label}"
-    )
+    version_tag = f"v{version}"
+    if is_final_release:
+        bundle_root = f"soil-mir-app-{version_tag}"
+    elif clean_label.startswith(f"{version_tag}-"):
+        bundle_root = f"soil-mir-app-{clean_label}"
+    elif clean_label.startswith(f"{version}-"):
+        bundle_root = f"soil-mir-app-v{clean_label}"
+    else:
+        bundle_root = f"soil-mir-app-{version_tag}-{clean_label}"
     return clean_label, bundle_root, is_final_release
