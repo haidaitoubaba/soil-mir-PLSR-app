@@ -97,6 +97,8 @@ def input_settings(batch):
         "expected": batch.expected, "lower": batch.lower, "upper": batch.upper,
         "exclude_co2": batch.exclude_co2, "regions": [list(r) for r in batch.regions],
         "mapping": batch.mapping, "opus_axis_mode": "native_npt",
+        "range_mode": batch.range_mode, "effective_lower": batch.effective_lower,
+        "effective_upper": batch.effective_upper,
     }
 
 

@@ -20,7 +20,7 @@ st.info(
 )
 
 st.subheader("Standalone spectral quality control")
-st.page_link("pages/1a_Spectral_QC.py", label="Spectral QC", icon="🔬")
+st.page_link("pages/1_Spectral_QC.py", label="Spectral QC", icon="🔬")
 st.caption("Compare replicate OPUS spectra without reference values or model training.")
 
 st.subheader("Workflow")
