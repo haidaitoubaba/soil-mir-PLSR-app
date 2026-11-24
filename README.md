@@ -11,7 +11,9 @@ is 99.6%, editable (e.g. 99.3%). Advanced mode adds exploratory NRMSE and option
 limits. These are repeatability checks, not proof of accuracy or OPUS Quick Compare equivalence.
 Inspect exact suspect filenames and pair metrics, review spectra, export Excel and rescan lists.
 Optional CSV/XLSX identity mapping uses `File Name`, `Sample`, and `Replicate` (recommended).
-Use one lab/instrument/batch per run. Save and restore local JSON review snapshots; freeze a
+Use one lab/instrument/batch per run. By default QC uses the common measured interval within
+600–4000 cm⁻¹, reports actual bounds, and never extrapolates. Choose Manual to enforce full
+coverage of specified bounds. An unevaluable batch has no numeric pass rate. Save and restore local JSON review snapshots; freeze a
 selection only after manual confirmation. On Run, optionally enter the frozen manifest path;
 file SHA-256 fingerprints and authoritative reference Sample IDs are validated before filtering.
 No original spectra are changed. Existing PLSR and Predict workflows remain available without QC.

@@ -18,7 +18,7 @@ from soil_mir.services.spectral_qc import (
 )
 
 from soil_mir.services.qc_manifest import (
-    build_manifest, criteria_from_dict, read_mapping, resolve_groups,
+    build_manifest, criteria_from_dict, input_settings, read_mapping, resolve_groups,
     review_selection, save_manifest, validate_manifest,
 )
 
@@ -63,9 +63,25 @@ if pattern == "Custom":
         "Custom regular expression with sample and replicate named groups",
         value=r"(?P<sample>.+)_(?P<replicate>[0-9]+)\.[0-9]+",
     )
-a, b = st.columns(2)
-lower = a.number_input("QC minimum (cm⁻¹)", value=600., format="%.4f")
-upper = b.number_input("QC maximum (cm⁻¹)", value=4000., format="%.4f")
+range_mode = st.radio(
+    "QC spectral range",
+    ["auto", "manual"],
+    format_func=lambda mode: (
+        "Automatic — shared measured range within 600–4000 cm⁻¹"
+        if mode == "auto" else "Manual — require complete measured coverage"
+    ),
+)
+if range_mode == "manual":
+    a, b = st.columns(2)
+    lower = a.number_input("QC minimum (cm⁻¹)", value=600., format="%.4f")
+    upper = b.number_input("QC maximum (cm⁻¹)", value=4000., format="%.4f")
+else:
+    lower, upper = 600., 4000.
+    st.caption(
+        "Uses one shared interval across all readable, matched spectra within 600–4000 cm⁻¹. "
+        "Actual bounds are shown after QC; no extrapolation. A narrow scan can limit the "
+        "batch range; use manual bounds to flag insufficient coverage instead."
+    )
 exclude_co2 = st.checkbox("Exclude CO₂ from global metrics (retain regional diagnostic)")
 region_input = st.text_input(
     "Diagnostic regions (lower-upper, comma separated)",
@@ -149,7 +165,7 @@ if unmatched:
     with st.expander("Unmatched files"):
         st.dataframe(pd.DataFrame({"File Name": unmatched}), hide_index=True)
 config = (directory, inventory, pattern, batch_label, expected, lower, upper,
-          exclude_co2, regions, mapping)
+          exclude_co2, regions, mapping, range_mode)
 if st.button("Run QC", type="primary", disabled=not names):
     progress = st.progress(0., text="Reading spectra")
     try:
@@ -158,7 +174,7 @@ if st.button("Run QC", type="primary", disabled=not names):
             lower=lower, upper=upper, exclude_co2=exclude_co2, regions=regions,
             cache_root=Path.home() / ".soil_mir_app" / "qc_cache",
             progress=lambda fraction, message: progress.progress(fraction, text=message),
-            mapping=mapping,
+            mapping=mapping, range_mode=range_mode,
         )
         st.session_state.qc_data = data
         st.session_state.qc_config = config
@@ -192,11 +208,32 @@ for col, key in zip(st.columns(4), ["Pass", "Review", "Fail", "Incomplete"]):
     col.metric(key, int(overview[key]))
 st.caption(
     f"Identified samples: {int(overview['Identified samples'])}; "
+    f"evaluable samples: {int(overview['Evaluable samples'])}; "
     f"unmatched files: {int(overview['Unmatched files'])}; "
-    f"read errors: {int(overview['Read errors'])}. Pass rate uses all identified samples."
+    f"read errors: {int(overview['Read errors'])}; "
+    f"input validation errors: {int(overview['Input validation errors'])}."
 )
-if pd.notna(overview["Sample pass rate (%)"]):
-    st.metric("Sample pass rate", f"{overview['Sample pass rate (%)']:.2f}%")
+if data.effective_lower is not None:
+    st.write(
+        f"**Shared comparison bounds:** {data.effective_lower:.4f}–"
+        f"{data.effective_upper:.4f} cm⁻¹ (no extrapolation)."
+    )
+    if data.range_mode == "auto" and (
+        data.effective_lower > lower or data.effective_upper < upper
+    ):
+        st.warning(
+            "The measured overlap is narrower than 600–4000 cm⁻¹. "
+            "Review native bounds in File QC. All samples use the same comparison interval; "
+            "regional diagnostics outside it may be unavailable. "
+            "Switch to Manual to require a fixed interval."
+        )
+if int(overview["Evaluable samples"]) == 0:
+    st.metric("Sample pass rate", "N/A")
+    st.warning("No complete samples could be evaluated. Inspect input errors and native ranges.")
+else:
+    a, b = st.columns(2)
+    a.metric("Pass rate (all identified)", f"{overview['Sample pass rate (%)']:.2f}%")
+    b.metric("Pass rate (evaluable only)", f"{overview['Evaluable sample pass rate (%)']:.2f}%")
 summary = tables["Sample QC"]
 if not summary.empty:
     statuses = st.multiselect(
@@ -334,12 +371,7 @@ if restore and st.button("Restore saved review"):
     try:
         payload = json.loads(restore.getvalue())
         validate_manifest(payload, directory)
-        current = {
-            "directory": data.directory, "pattern": data.pattern, "batch_label": data.batch_label,
-            "expected": data.expected, "lower": data.lower, "upper": data.upper,
-            "exclude_co2": data.exclude_co2, "regions": [list(r) for r in data.regions],
-            "mapping": data.mapping, "opus_axis_mode": "native_npt",
-        }
+        current = input_settings(data)
         if payload["input"] != current or criteria_from_dict(payload["criteria"]) != criteria:
             raise ValueError("Input settings or thresholds differ from saved review.")
         st.session_state.qc_reviews = payload["decisions"]

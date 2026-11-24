@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from soil_mir.io.cache import load_opus_spectra_cached
-from soil_mir.io.opus import list_opus_files, read_opus_spectrum
+from soil_mir.io.opus import list_opus_files, read_opus_spectrum, validate_wavenumbers
 from soil_mir.services.qc_manifest import digest_file, resolve_groups
 from soil_mir.qc import (
     REGIONS, align_group, classify_pair, diagnose,
@@ -45,12 +45,16 @@ class Batch:
     pair_data: dict
     mapping: dict | None = None
     content_hashes: dict | None = None
+    range_mode: str = "auto"
+    effective_lower: float | None = None
+    effective_upper: float | None = None
+    read_errors: dict | None = None
 
 
 def prepare_batch(
     directory, *, pattern="Auto", batch_label="", expected=3,
     lower=600., upper=4000., exclude_co2=False, regions=REGIONS,
-    cache_root=None, progress=None, mapping=None,
+    cache_root=None, progress=None, mapping=None, range_mode="auto",
 ):
     directory = str(Path(directory).expanduser().resolve())
     inventory = file_inventory(directory)
@@ -61,6 +65,8 @@ def prepare_batch(
     groups, unmatched, detected = resolve_groups(names, pattern, mapping)
     if not np.isfinite([lower, upper]).all() or lower >= upper:
         raise ValueError("QC spectral minimum must be below maximum.")
+    if range_mode not in {"auto", "manual"}:
+        raise ValueError("QC range mode must be auto or manual.")
     group_issues([], expected)
     raw, errors, aligned, pair_data = {}, {}, {}, {}
     if progress:
@@ -77,15 +83,48 @@ def prepare_batch(
                 raw[name] = read_opus_spectrum(Path(directory) / name, require_absorbance=True)
             except Exception as exc:
                 errors[name] = str(exc)
-    # Reject unusable individual scans before any attribution.
+    read_errors = errors.copy()
+    # Establish one shared measured interval for the batch, not separate intervals
+    # for each pair or sample. Unmatched/unreadable scans cannot define this interval.
+    matched = {scan.filename for scans in groups.values() for scan in scans}
+    native_bounds = {}
     for name, (values, axis) in raw.items():
-        mask = (axis >= lower) & (axis <= upper)
+        try:
+            axis = validate_wavenumbers(axis)
+            values = np.asarray(values, dtype=float)
+            if values.shape != axis.shape or not np.isfinite(values).all():
+                raise ValueError("Invalid absorbance values")
+            if np.linalg.norm(values - values.mean()) <= 1e-12:
+                raise ValueError("Constant spectrum")
+        except ValueError as exc:
+            errors[name] = str(exc)
+            continue
+        if name in matched:
+            native_bounds[name] = (float(axis.min()), float(axis.max()))
+    effective_lower, effective_upper = float(lower), float(upper)
+    if range_mode == "auto" and native_bounds:
+        effective_lower = max(effective_lower, max(v[0] for v in native_bounds.values()))
+        effective_upper = min(effective_upper, min(v[1] for v in native_bounds.values()))
+        if effective_lower >= effective_upper:
+            raise ValueError(
+                "No shared measured range within the requested interval. "
+                "Inspect native spectral ranges, use a single batch, or specify manual bounds."
+            )
+    for name, (values, axis) in raw.items():
+        if name in errors:
+            continue
+        low, high = float(axis.min()), float(axis.max())
+        if low > effective_lower or high < effective_upper:
+            errors[name] = (
+                f"Requested range {effective_lower:.4f}–{effective_upper:.4f} cm⁻¹ not fully "
+                f"covered by native range {low:.4f}–{high:.4f} cm⁻¹"
+            )
+            continue
+        mask = (axis >= effective_lower) & (axis <= effective_upper)
         if exclude_co2:
             mask &= (axis < 2300) | (axis > 2400)
         retained = values[mask]
-        if axis.min() > lower or axis.max() < upper:
-            errors[name] = "Requested range not fully covered"
-        elif len(retained) < 2 or np.linalg.norm(retained - retained.mean()) <= 1e-12:
+        if len(retained) < 2 or np.linalg.norm(retained - retained.mean()) <= 1e-12:
             errors[name] = "Constant spectrum or insufficient valid spectral points"
     count = max(1, len(groups))
     for i, (sample, scans) in enumerate(groups.items(), 1):
@@ -95,7 +134,7 @@ def prepare_batch(
         group_error = ""
         if available:
             try:
-                axis, spectra = align_group(available, lower, upper)
+                axis, spectra = align_group(available, effective_lower, effective_upper)
                 aligned[sample] = (axis, spectra)
             except ValueError as exc:
                 group_error = str(exc)
@@ -103,7 +142,9 @@ def prepare_batch(
         for a, b in combinations(sorted(scans, key=lambda s: s.filename), 2):
             metrics, error = None, group_error
             if a.filename in errors or b.filename in errors:
-                error = "; ".join(errors[n] for n in (a.filename, b.filename) if n in errors)
+                error = "; ".join(dict.fromkeys(
+                    errors[n] for n in (a.filename, b.filename) if n in errors
+                ))
             elif a.filename in spectra and b.filename in spectra:
                 try:
                     metrics = pair_metrics(
@@ -123,7 +164,9 @@ def prepare_batch(
     return Batch(
         directory, inventory, detected, batch_label, expected, lower, upper,
         exclude_co2, tuple(regions), groups, unmatched, raw, errors, aligned, pair_data,
-        mapping, content_hashes,
+        mapping, content_hashes, range_mode,
+        effective_lower if native_bounds else None,
+        effective_upper if native_bounds else None, read_errors,
     )
 
 
@@ -214,7 +257,10 @@ def evaluate_batch(batch, criteria, decisions=None):
             file_row = {
                 "Sample ID": sample, "Batch": batch.batch_label,
                 "Replicate ID": scan.replicate, "Well": scan.well, "File Name": name,
-                "File Diagnosis": diag, "Read Error": batch.errors.get(name, ""),
+                "File Diagnosis": diag,
+                "Read Error": (batch.read_errors or {}).get(name, ""),
+                "Input validation error": batch.errors.get(name, "")
+                if name not in (batch.read_errors or {}) else "",
                 "Pass pairs": sum(row["Pair QC"] == "Pass" for row in related),
                 "Review pairs": sum(row["Pair QC"] == "Review" for row in related),
                 "Fail pairs": sum(row["Pair QC"] == "Fail" for row in related),
@@ -277,7 +323,10 @@ def evaluate_batch(batch, criteria, decisions=None):
         manual = decisions.get(name, {})
         files.append({
             "Sample ID": "", "Batch": batch.batch_label, "File Name": name,
-            "File Diagnosis": "Unmatched", "Read Error": batch.errors.get(name, ""),
+            "File Diagnosis": "Unmatched",
+            "Read Error": (batch.read_errors or {}).get(name, ""),
+            "Input validation error": batch.errors.get(name, "")
+            if name not in (batch.read_errors or {}) else "",
             "Recommended Action": "Correct filename grouping",
             "Manual decision": manual.get("decision", "Pending review"),
             "Manual reason": manual.get("reason", ""),
@@ -293,13 +342,21 @@ def evaluate_batch(batch, criteria, decisions=None):
     rescan_frame["QC mode"] = "Advanced" if criteria.advanced else "USDA-inspired"
     rescan_frame["Batch"] = batch.batch_label
     statuses = sample_frame.get("Sample QC", pd.Series(dtype=str)).value_counts()
+    evaluated = int(sum(statuses.get(key, 0) for key in ("Pass", "Review", "Fail")))
     overview = {
         "Total OPUS files": len(batch.inventory), "Identified samples": len(samples),
-        "Unmatched files": len(batch.unmatched), "Read errors": len(batch.errors),
+        "Unmatched files": len(batch.unmatched),
+        "Read errors": len(batch.read_errors or {}),
+        "Input validation errors": len(set(batch.errors) - set(batch.read_errors or {})),
+        "Evaluable samples": evaluated,
+        "Effective minimum (cm⁻¹)": batch.effective_lower,
+        "Effective maximum (cm⁻¹)": batch.effective_upper,
         **{status: int(statuses.get(status, 0))
            for status in ("Pass", "Review", "Fail", "Incomplete")},
         "Sample pass rate (%)": 100 * statuses.get("Pass", 0) / len(samples)
-        if samples else None,
+        if samples and evaluated else None,
+        "Evaluable sample pass rate (%)": 100 * statuses.get("Pass", 0) / evaluated
+        if evaluated else None,
     }
     valid = sample_frame.loc[
         sample_frame["Sample QC"] != "Incomplete"
@@ -318,6 +375,9 @@ def evaluate_batch(batch, criteria, decisions=None):
     settings = {
         "Directory": batch.directory, "Batch": batch.batch_label, "Pattern": batch.pattern,
         "Expected replicates": batch.expected, "Lower": batch.lower, "Upper": batch.upper,
+        "QC range mode": batch.range_mode,
+        "Effective minimum (cm⁻¹)": batch.effective_lower,
+        "Effective maximum (cm⁻¹)": batch.effective_upper,
         "Exclude CO2 globally": batch.exclude_co2, "OPUS mode": "native_npt",
         "Regions": str(batch.regions), "Criteria": str(asdict(criteria)),
         "Pearson threshold (%)": criteria.similarity, "Comparison": "strict >",
