@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import hashlib
 import io
 import json
 
@@ -20,9 +21,55 @@ from soil_mir.services.spectral_qc import (
 )
 
 from soil_mir.services.qc_manifest import (
-    build_manifest, criteria_from_dict, input_settings, read_mapping, resolve_groups,
+    DECISION_ORDER, apply_review_edits, build_manifest, criteria_from_dict,
+    decision_export_rows, export_decision_spectra, input_settings, read_mapping, resolve_groups,
     review_selection, save_manifest, validate_manifest,
 )
+
+def save_review_edits(edits, file_table):
+    try:
+        updated = apply_review_edits(file_table, st.session_state.qc_reviews, edits)
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    if updated != st.session_state.qc_reviews:
+        st.session_state.qc_reviews = updated
+        st.session_state.pop("qc_frozen", None)
+        st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
+        st.session_state.qc_review_notice = "Review decisions saved and synchronized."
+        st.rerun()
+    else:
+        st.info("No review changes to save.")
+
+
+def review_editor(frame, key, file_table):
+    """All tables edit the same saved decisions; submit before switching views."""
+    if frame.empty:
+        st.dataframe(frame, hide_index=True)
+        return
+    frame = frame.copy().reset_index(drop=True)
+    if "Manual reason" not in frame:
+        reasons = file_table.set_index("File Name")["Manual reason"]
+        frame["Manual reason"] = frame["File Name"].map(reasons).fillna("")
+    revision = st.session_state.get("qc_review_revision", 0)
+    identity = hashlib.sha256(
+        json.dumps(frame["File Name"].tolist(), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:16]
+    with st.form(f"qc_editor_{key}_{revision}_{identity}"):
+        edited = st.data_editor(
+            frame, hide_index=True, num_rows="fixed",
+            disabled=[c for c in frame.columns if c not in ("Manual decision", "Manual reason")],
+            column_config={
+                "Manual decision": st.column_config.SelectboxColumn(
+                    "Manual decision", options=list(DECISION_ORDER), required=True
+                ),
+                "Manual reason": st.column_config.TextColumn("Reason (optional)"),
+            },
+            key=f"qc_table_{key}_{revision}_{identity}",
+        )
+        if st.form_submit_button("Save table decisions"):
+            save_review_edits(edited.to_dict("records"), file_table)
+
 
 st.set_page_config(page_title="Spectral QC", page_icon="🔬", layout="wide")
 st.title("Spectral QC")
@@ -187,6 +234,7 @@ if st.button("Run QC", type="primary", disabled=not names):
         st.session_state.qc_data = data
         st.session_state.qc_config = config
         st.session_state.qc_reviews = {}
+        st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
         st.session_state.pop("qc_frozen", None)
         st.session_state.qc_review_criteria = criteria
         progress.progress(1., text="QC complete")
@@ -206,6 +254,7 @@ if st.session_state.get("qc_review_criteria") != criteria:
     if st.session_state.qc_reviews:
         archive.append((st.session_state.qc_review_criteria, st.session_state.qc_reviews.copy()))
     st.session_state.qc_reviews = {}
+    st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
     st.session_state.pop("qc_frozen", None)
     st.session_state.qc_review_criteria = criteria
     st.info("Threshold changed: cached metrics reused; review decisions require reconfirmation.")
@@ -383,27 +432,21 @@ if not summary.empty:
     file_rows = tables["Replicate Diagnosis"]
     concise = ["Replicate ID", "File Name", "File Diagnosis", "Recommended decision",
                "Manual decision", "Min similarity (%)", "Recommendation reason"]
-    st.dataframe(file_rows.loc[file_rows["Sample ID"] == sample, concise], hide_index=True)
+    review_editor(file_rows.loc[file_rows["Sample ID"] == sample, concise],
+                  "sample", tables["File QC"])
     st.subheader("Review decision")
     name = st.selectbox("Exact OPUS file", filenames)
     previous = st.session_state.qc_reviews.get(name, {})
-    choices = ["Pending review", "Keep", "Exclude", "Rescan required"]
+    choices = list(DECISION_ORDER)
     revision = st.session_state.get("qc_review_revision", 0)
     with st.form(f"qc_review_{name}_{criteria}_{revision}"):
         decision = st.radio("Decision", choices,
                             index=choices.index(previous.get("decision", choices[0])))
-        reason = st.text_area("Reason", value=previous.get("reason", ""))
+        reason = st.text_area("Reason (optional)", value=previous.get("reason", ""))
         if st.form_submit_button("Save review decision"):
-            if decision != "Pending review" and not reason.strip():
-                st.error("Enter a reason for this explicit decision.")
-            else:
-                st.session_state.pop("qc_frozen", None)
-                st.session_state.qc_reviews[name] = {
-                    "decision": decision, "reason": reason,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "source": "Manual",
-                }
-                st.rerun()
+            save_review_edits([{
+                "File Name": name, "Manual decision": decision, "Manual reason": reason,
+            }], tables["File QC"])
 st.subheader("Batch review decisions")
 st.caption(
     "Apply recommendations only to files without existing decisions: keep agreeing scans, "
@@ -436,7 +479,8 @@ with st.expander("All files and unresolved inputs"):
         "Sample ID", "Replicate ID", "File Name", "File Diagnosis", "Recommended decision",
         "Manual decision", "Recommendation reason",
     ]
-    st.dataframe(display if detailed else display.reindex(columns=columns), hide_index=True)
+    review_editor(display if detailed else display.reindex(columns=columns),
+                  "all_files", file_table)
 with st.expander("Exploratory MAD thresholds"):
     st.dataframe(tables["Threshold diagnostics"], hide_index=True)
 st.subheader("Export QC results")
@@ -449,13 +493,13 @@ with agreed_tab:
         "and the unique passing pair of a complete triplet. Manual decisions remain separate."
     )
     st.write(f"{len(agreed)} agreed spectra across {agreed['Sample ID'].nunique()} samples.")
-    st.dataframe(agreed, hide_index=True)
+    review_editor(agreed, "agreed", tables["File QC"])
     st.download_button("Export Agreed Spectra", agreed.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"Agreed_Spectra_{timestamp}.csv", mime="text/csv")
 with review_tab:
     review = tables["Review decisions"]
     st.caption("Recorded manual or applied-recommendation decisions. Pending is not approval.")
-    st.dataframe(review, hide_index=True)
+    review_editor(review, "export_review", tables["File QC"])
     kept = review.loc[review["Manual decision"] == "Keep"]
     st.download_button("Export Reviewed Keep List", kept.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"Reviewed_Keep_{timestamp}.csv", mime="text/csv")
@@ -468,6 +512,21 @@ with rescan_tab:
     elif rescan_mode == "Suggestions only":
         rescan = rescan.loc[rescan["Type"] != "Confirmed rescan"]
     st.dataframe(rescan, hide_index=True)
+    st.caption(
+        "Edit exact filenames below. Whole-sample or missing-replicate suggestions "
+        "are not individual files and cannot be edited directly."
+    )
+    file_table = tables["File QC"]
+    affected_samples = set(rescan["Sample ID"].dropna()) - {""}
+    affected_files = set(rescan["File Name"].dropna()) - {""}
+    related = file_table.loc[
+        file_table["Sample ID"].isin(affected_samples)
+        | file_table["File Name"].isin(affected_files)
+    ]
+    review_editor(related.reindex(columns=[
+        "Sample ID", "File Name", "File Diagnosis", "Recommended decision",
+        "Manual decision", "Manual reason",
+    ]), "rescan", file_table)
     st.download_button("Export Rescan List", rescan.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"Rescan_List_{timestamp}.csv", mime="text/csv")
 output = st.text_input("QC output directory", value=str(Path(directory).parent / "Spectral_QC"))
@@ -491,17 +550,12 @@ if st.session_state.get("qc_saved_folder") and st.button("Open QC results folder
 if data.unmatched:
     with st.expander("Resolve unmatched files for optional calibration"):
         unmatched_name = st.selectbox("Unmatched filename", data.unmatched)
-        unmatched_reason = st.text_input("Reason for excluding unmatched file")
+        unmatched_reason = st.text_input("Reason for excluding unmatched file (optional)")
         if st.button("Confirm exclusion of unmatched file"):
-            if not unmatched_reason.strip():
-                st.error("Enter a reason.")
-            else:
-                st.session_state.qc_reviews[unmatched_name] = {
-                    "decision": "Exclude", "reason": unmatched_reason,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                st.session_state.pop("qc_frozen", None)
-                st.rerun()
+            save_review_edits([{
+                "File Name": unmatched_name, "Manual decision": "Exclude",
+                "Manual reason": unmatched_reason,
+            }], tables["File QC"])
 
 st.subheader("Save or restore review")
 st.caption("Review snapshots are local JSON files; no spectra are uploaded.")
@@ -537,6 +591,42 @@ st.warning(
     "QC does not change PLSR inputs unless you explicitly freeze and select a manifest "
     "on the Run page. All pending non-passing files must be resolved."
 )
+st.markdown("**Export spectra by review decision**")
+st.caption(
+    "Copy original OPUS files only, with exact filenames and verified checksums. "
+    "This uses saved decisions, not unconfirmed recommendations. Apply recommended "
+    "decisions first if you want to export those files as Keep. Pending files are "
+    "not approved for calibration. This export does not freeze a calibration manifest."
+)
+export_choices = st.multiselect(
+    "Decisions to export", ["Keep", "Exclude", "Rescan required", "Pending review"],
+    default=["Keep"],
+)
+try:
+    export_rows = decision_export_rows(
+        tables["File QC"], st.session_state.qc_reviews, export_choices
+    ) if export_choices else []
+    st.write(f"{len(export_rows)} spectra selected for copying.")
+    if st.button("Export selected OPUS spectra", disabled=not export_rows):
+        try:
+            target, count = export_decision_spectra(
+                data, tables, st.session_state.qc_reviews, export_choices,
+                Path(output).expanduser() / f"QC_Spectra_{timestamp}", criteria,
+            )
+            st.session_state.qc_export_folder = str(target)
+            st.success(f"Copied and verified {count} OPUS files to {target}")
+        except (OSError, ValueError) as exc:
+            st.error(f"Export failed: {exc}")
+except ValueError as exc:
+    st.error(str(exc))
+if st.session_state.get("qc_export_folder"):
+    st.code(st.session_state.qc_export_folder)
+    if st.button("Open exported spectra folder"):
+        try:
+            open_local_folder(st.session_state.qc_export_folder)
+        except (OSError, RuntimeError) as exc:
+            st.warning(str(exc))
+st.divider()
 min_retained = st.number_input("Minimum retained scans per sample", min_value=2, value=2)
 allow_single = st.checkbox("Allow explicitly reviewed single-scan exceptions")
 try:

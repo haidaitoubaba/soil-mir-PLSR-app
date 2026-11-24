@@ -133,3 +133,92 @@ def test_manifest_detects_same_size_edit_before_freeze(tmp_path, monkeypatch):
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     with pytest.raises(ValueError, match="content changed since QC"):
         build_manifest(batch, criteria, spectral_qc.evaluate_batch(batch, criteria), {})
+
+
+
+def test_optional_reason_and_edit_sync(tmp_path, monkeypatch):
+    from soil_mir.services.qc_manifest import apply_review_edits
+
+    names = [f"S1_{i}.0" for i in (1, 2, 3)]
+    for name in names:
+        (tmp_path / name).write_bytes(name.encode())
+    axis = np.linspace(600, 4000, 341)
+    x = 1 + np.sin(axis / 100)
+    # Opposite centered signals with a positive baseline keep NRMSE defined.
+    raw = {name: (x if i < 2 else 2 - x, axis) for i, name in enumerate(names)}
+    monkeypatch.setattr(
+        spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
+    )
+    batch = spectral_qc.prepare_batch(tmp_path)
+    tables = spectral_qc.evaluate_batch(batch, Criteria())
+    edits = [{"File Name": name, "Manual decision": "Keep" if i < 2 else "Exclude"}
+             for i, name in enumerate(names)]
+    decisions = apply_review_edits(tables["File QC"], {}, edits)
+    assert all(d["reason"] == "" and d["source"] == "Manual" for d in decisions.values())
+    tables = spectral_qc.evaluate_batch(batch, Criteria(), decisions)
+    assert tables["Review decisions"]["Manual decision"].tolist() == ["Keep", "Keep", "Exclude"]
+    assert tables["Agreed Spectra"]["Manual decision"].tolist() == ["Keep", "Keep"]
+    payload = build_manifest(batch, Criteria(), tables, decisions, freeze=True)
+    assert payload["selection"]["retained"] == names[:2]
+    changed = apply_review_edits(tables["File QC"], decisions, [
+        {"File Name": names[2], "Manual decision": "Rescan required"},
+    ])
+    assert changed[names[0]] == decisions[names[0]]
+    assert changed[names[2]]["decision"] == "Rescan required"
+    tables = spectral_qc.evaluate_batch(batch, Criteria(), changed)
+    assert "Confirmed rescan" in tables["Rescan List"]["Type"].tolist()
+
+
+def test_export_decision_spectra_copies_and_verifies(tmp_path, monkeypatch):
+    from soil_mir.services.qc_manifest import decision_export_rows, export_decision_spectra
+
+    source = tmp_path / "original"
+    source.mkdir()
+    names = [f"S1_{i}.0" for i in (1, 2, 3)]
+    for name in names:
+        (source / name).write_bytes(name.encode())
+    axis = np.linspace(600, 4000, 341)
+    x = np.sin(axis / 100)
+    raw = {name: (x, axis) for name in names}
+    monkeypatch.setattr(
+        spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
+    )
+    batch = spectral_qc.prepare_batch(source)
+    criteria = Criteria()
+    decisions = {names[0]: {"decision": "Keep"}, names[1]: {"decision": "Rescan required"}}
+    tables = spectral_qc.evaluate_batch(batch, criteria, decisions)
+    assert len(decision_export_rows(tables["File QC"], decisions, ["Keep"])) == 1
+    target, count = export_decision_spectra(
+        batch, tables, decisions, ["Keep", "Rescan required"], tmp_path / "copy", criteria
+    )
+    assert count == 2
+    assert (target / "Keep" / names[0]).read_bytes() == names[0].encode()
+    assert (target / "Rescan_required" / names[1]).read_bytes() == names[1].encode()
+    assert not (target / "Keep" / names[2]).exists()
+    assert len(list(source.iterdir())) == 3
+    assert len(pd.read_csv(target / "Exported_Spectra.csv")) == 2
+    assert (target / "Export_Settings.json").is_file()
+    with pytest.raises(FileExistsError):
+        export_decision_spectra(batch, tables, decisions, ["Keep"], target, criteria)
+    with pytest.raises(ValueError, match="outside"):
+        export_decision_spectra(batch, tables, decisions, ["Keep"], source / "copy", criteria)
+    import os
+
+    file = source / names[0]
+    stat = file.stat()
+    file.write_bytes(b"x" * stat.st_size)
+    os.utime(file, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    with pytest.raises(ValueError, match="content changed"):
+        export_decision_spectra(
+            batch, tables, decisions, ["Keep"], tmp_path / "changed", criteria
+        )
+    assert not (tmp_path / "changed").exists()
+
+
+def test_invalid_review_keep_rejected():
+    from soil_mir.services.qc_manifest import apply_review_edits
+
+    frame = pd.DataFrame({"File Name": ["a.0", "b.0"], "File Diagnosis": ["Invalid", "Unmatched"]})
+    for name in ("a.0", "b.0"):
+        with pytest.raises(ValueError, match="Cannot Keep"):
+            apply_review_edits(frame, {}, [{"File Name": name, "Manual decision": "Keep"}])
