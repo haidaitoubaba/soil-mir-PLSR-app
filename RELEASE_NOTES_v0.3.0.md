@@ -16,3 +16,9 @@ implementation is not asserted to reproduce OPUS Quick Compare.
 - Read the full native OPUS absorbance range and use the shared measured interval by default, with an explicit strict manual mode. Never extrapolate; report requested and effective bounds.
 - Separate read failures from input validation errors and show N/A when no samples are evaluable.
 - Correct the sidebar label to Spectral QC.
+
+## RC3 review workflow
+
+- Advanced regional settings, low-wavenumber diagnostic window, visual-only preprocessing.
+- Simplified replicate diagnoses and explicit batch application of unambiguous recommendations.
+- Separate agreed spectra, review decisions and rescan exports; no original files modified.

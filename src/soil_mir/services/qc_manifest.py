@@ -203,7 +203,8 @@ def build_manifest(batch, criteria, tables, decisions, *, freeze=False,
         "files": fingerprints(batch), "groups": groups, "decisions": decisions,
         "automatic_results": {
             name: json.loads(tables[name].to_json(orient="records", double_precision=15))
-            for name in ("Sample QC", "Pairwise QC", "Regional QC", "File QC", "Rescan List")
+            for name in ("Sample QC", "Pairwise QC", "Regional QC", "File QC", "Rescan List",
+                         "Agreed Spectra", "Review decisions")
         },
         "selection": selection,
     }

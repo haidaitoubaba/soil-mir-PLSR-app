@@ -150,3 +150,54 @@ def test_auto_range_reads_actual_opus_metadata_without_nominal_limits(tmp_path, 
     strict = spectral_qc.prepare_batch(tmp_path, range_mode="manual")
     assert strict.effective_lower == 600
     assert strict.effective_upper == 4000
+
+
+
+def test_agreed_export_and_apply_recommendations(tmp_path, monkeypatch):
+    names = [f"NSSH_{s}_{i}_A{i}.0" for s in (1, 2, 3) for i in (1, 2, 3)]
+    for name in names:
+        (tmp_path / name).touch()
+    axis = np.linspace(400, 4000, 361)
+    x = 1 + np.sin(axis / 100)
+    noise = np.cos(axis / 100)
+    raw = {}
+    for name, values in zip(names, [x, x, x, x, x, x + .2*noise,
+                                    x, x + .05*noise, x - .05*noise]):
+        raw[name] = (values, axis)
+    monkeypatch.setattr(
+        spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
+    )
+    batch = spectral_qc.prepare_batch(tmp_path)
+    criteria = Criteria()
+    tables = spectral_qc.evaluate_batch(batch, criteria)
+    assert set(tables["Agreed Spectra"]["File Name"]) == set(names[:5])
+    assert tables["Sample QC"]["Sample QC"].tolist() == ["Pass", "Review", "Review"]
+    prior = {names[0]: {"decision": "Exclude", "reason": "manual"}}
+    updated = spectral_qc.recommended_reviews(tables, prior)
+    assert updated[names[0]] == prior[names[0]]
+    assert updated[names[3]]["decision"] == "Keep"
+    assert updated[names[5]]["decision"] == "Rescan required"
+    assert updated[names[5]]["source"] == "Applied recommendation"
+    assert not any(name in updated for name in names[6:])
+    assert len(spectral_qc.recommended_reviews(tables, updated)) == len(updated)
+
+
+def test_preview_is_not_qc_preprocessing(tmp_path, monkeypatch):
+    names = [f"NSSH_1_{i}_A{i}.0" for i in (1, 2, 3)]
+    for name in names:
+        (tmp_path / name).touch()
+    axis = np.linspace(400, 4000, 361)
+    x = 1 + np.sin(axis / 100)
+    raw = {name: (x * (i + 1) + i, axis) for i, name in enumerate(names)}
+    monkeypatch.setattr(
+        spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
+    )
+    batch = spectral_qc.prepare_batch(tmp_path)
+    before = spectral_qc.evaluate_batch(batch, Criteria())["Pairwise QC"]
+    out_axis, processed = spectral_qc.preview_spectra(batch, "NSSH_1", "SNV")
+    assert out_axis[0] > out_axis[-1]
+    np.testing.assert_allclose(processed[names[0]], processed[names[2]], atol=1e-10)
+    _, smooth = spectral_qc.preview_spectra(batch, "NSSH_1", "SG Smoothing", 11, 2)
+    assert not np.array_equal(smooth[names[0]], x[::-1])
+    after = spectral_qc.evaluate_batch(batch, Criteria())["Pairwise QC"]
+    pd.testing.assert_frame_equal(before, after)

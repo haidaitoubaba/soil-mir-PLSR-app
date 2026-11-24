@@ -140,3 +140,7 @@ manual acceptance checks are described in `WINDOWS_RELEASE_CHECKLIST.md` and
 - Prediction workbooks record model and prediction OPUS modes, crop bounds, aligned range, and endpoint extrapolation limit. Prediction filenames include microseconds.
 
 New models use the corrected `native_npt` reader; historical runs and models without a stored mode retain `legacy_array_length`. In Predict, **Match saved model** selects the compatible reader automatically. Use the manual mode override for diagnostics only; retrain and predict with the same corrected mode for scientific comparisons. Cache version 2 isolates the two modes. See [release notes](RELEASE_NOTES_v0.2.4.md) for compatibility and acceptance checks.
+
+QC visualization can preview modeling preprocessing methods without changing acceptance metrics.
+Batch review applies unambiguous recommendations only and preserves recorded decisions.
+Agreed Spectra exports automatic recommendations separately from reviewed Keep and rescan lists.

@@ -12,6 +12,7 @@ import pandas as pd
 
 from soil_mir.io.cache import load_opus_spectra_cached
 from soil_mir.io.opus import list_opus_files, read_opus_spectrum, validate_wavenumbers
+from soil_mir.preprocessing import fit_transform_preprocessor
 from soil_mir.services.qc_manifest import digest_file, resolve_groups
 from soil_mir.qc import (
     REGIONS, align_group, classify_pair, diagnose,
@@ -185,6 +186,44 @@ def _extreme(metrics, key, function, multiplier=1.):
     return function(values) if values else None
 
 
+def preview_spectra(batch, sample, method="Raw Spectra", window=11, polyorder=2):
+    """Visual-only transforms; MSC reference uses all aligned scans, not visible subset."""
+    axis, spectra = batch.aligned[sample]
+    names = list(spectra)
+    # Match the modeling convention: high-to-low wavenumber, derivative per point.
+    axis = axis[::-1]
+    matrix = np.stack([spectra[name][::-1] for name in names])
+    if method != "Raw Spectra":
+        if method not in ("SNV", "MSC"):
+            order = 2 if method.startswith("2nd Deriv") else 1
+            if method == "SG Smoothing":
+                order = 0
+            if not (window >= 3 and window % 2 and order <= polyorder < window
+                    and window <= matrix.shape[1]):
+                raise ValueError("Use an odd SG window within the spectrum and valid polynomial.")
+        _, matrix = fit_transform_preprocessor(
+            method, matrix, {"sg_window": window, "sg_polyorder": polyorder}
+        )
+    if not np.isfinite(matrix).all():
+        raise ValueError("Preprocessing produced non-finite values.")
+    return axis, dict(zip(names, matrix))
+
+
+def recommended_reviews(tables, existing):
+    """Explicit batch action. Preserve all existing user decisions; do not guess."""
+    result = dict(existing)
+    timestamp = datetime.now(timezone.utc).isoformat()
+    for row in tables["File QC"].to_dict("records"):
+        name = row["File Name"]
+        recommendation = row["Recommended decision"]
+        if name not in result and recommendation in {"Keep", "Rescan required"}:
+            result[name] = {
+                "decision": recommendation, "reason": row["Recommendation reason"],
+                "timestamp": timestamp, "source": "Applied recommendation",
+            }
+    return result
+
+
 def evaluate_batch(batch, criteria, decisions=None):
     """Reclassify cached pair metrics without reading or aligning spectra again."""
     decisions = decisions or {}
@@ -261,13 +300,28 @@ def evaluate_batch(batch, criteria, decisions=None):
         for scan in scans:
             name = scan.filename
             related = [row for row in pair_rows if name in (row["File A"], row["File B"])]
-            diag = "Invalid" if name in batch.errors else d["files"][name]
+            detail = "Invalid" if name in batch.errors else d["files"][name]
+            diag = {
+                "Consistent": "Consistent", "Mutually consistent": "Consistent",
+                "Suspected": "Suspected", "Invalid": "Invalid",
+            }.get(detail, "Needs review")
+            recommendation = {
+                "Consistent": "Keep", "Suspected": "Rescan required",
+            }.get(diag, "Pending review")
+            explanation = {
+                "Consistent": "All pairs pass" if d["status"] == "Pass"
+                else "Member of the unique passing pair",
+                "Suspected": "Outside the unique passing pair; rescan recommended, not proven bad",
+                "Invalid": "Input invalid; investigate before deciding",
+                "Needs review": "No unambiguous retention decision",
+            }[diag]
             manual = decisions.get(name, {})
             action = manual.get("decision", "Pending review")
             file_row = {
                 "Sample ID": sample, "Batch": batch.batch_label,
                 "Replicate ID": scan.replicate, "Well": scan.well, "File Name": name,
-                "File Diagnosis": diag,
+                "File Diagnosis": diag, "Diagnosis detail": detail,
+                "Recommended decision": recommendation, "Recommendation reason": explanation,
                 "Read Error": (batch.read_errors or {}).get(name, ""),
                 "Input validation error": batch.errors.get(name, "")
                 if name not in (batch.read_errors or {}) else "",
@@ -290,10 +344,8 @@ def evaluate_batch(batch, criteria, decisions=None):
                 "Reason": "; ".join(row["Reason"] for row in related if row["Reason"]),
                 "Manual decision": action, "Manual reason": manual.get("reason", ""),
                 "Review timestamp": manual.get("timestamp", ""),
-                "Recommended Action": (
-                    "Keep (suggested)" if d["status"] == "Pass"
-                    else d["action"]
-                ),
+                "Decision source": manual.get("source", "Manual" if manual else ""),
+                "Recommended Action": recommendation,
             }
             if name in batch.raw:
                 values, axis = batch.raw[name]
@@ -333,7 +385,9 @@ def evaluate_batch(batch, criteria, decisions=None):
         manual = decisions.get(name, {})
         files.append({
             "Sample ID": "", "Batch": batch.batch_label, "File Name": name,
-            "File Diagnosis": "Unmatched",
+            "File Diagnosis": "Unmatched", "Diagnosis detail": "Filename not matched",
+            "Recommended decision": "Pending review",
+            "Recommendation reason": "Correct filename grouping",
             "Read Error": (batch.read_errors or {}).get(name, ""),
             "Input validation error": batch.errors.get(name, "")
             if name not in (batch.read_errors or {}) else "",
@@ -341,10 +395,22 @@ def evaluate_batch(batch, criteria, decisions=None):
             "Manual decision": manual.get("decision", "Pending review"),
             "Manual reason": manual.get("reason", ""),
             "Review timestamp": manual.get("timestamp", ""),
+            "Decision source": manual.get("source", "Manual" if manual else ""),
         })
     sample_frame = pd.DataFrame(samples)
     pair_frame = pd.DataFrame(pairs)
     file_frame = pd.DataFrame(files)
+    agreed_columns = [
+        "Sample ID", "Replicate ID", "Well", "File Name", "Diagnosis detail",
+        "Recommended decision", "Recommendation reason", "Manual decision", "Decision source",
+    ]
+    agreed = file_frame.loc[file_frame["Recommended decision"] == "Keep"].reindex(
+        columns=agreed_columns
+    )
+    review = file_frame.reindex(columns=[
+        "Sample ID", "Replicate ID", "File Name", "File Diagnosis", "Recommended decision",
+        "Manual decision", "Decision source", "Manual reason", "Review timestamp",
+    ])
     rescan_frame = pd.DataFrame(
         rescans, columns=["Sample ID", "File Name", "Replicate ID", "Type", "Reason"]
     )
@@ -404,10 +470,7 @@ def evaluate_batch(batch, criteria, decisions=None):
         "Sample QC": sample_frame, "Pairwise QC": pair_frame,
         "Regional QC": pd.DataFrame(regional), "File QC": file_frame,
         "Replicate Diagnosis": file_frame.copy(), "Rescan List": rescan_frame,
-        "Review decisions": file_frame.reindex(columns=[
-            "Sample ID", "File Name", "File Diagnosis", "Manual decision",
-            "Manual reason", "Review timestamp",
-        ]),
+        "Agreed Spectra": agreed, "Review decisions": review,
         "Settings": pd.DataFrame(list(settings.items()), columns=["Field", "Value"]),
         "Threshold diagnostics": pd.DataFrame(diagnostics),
     }
