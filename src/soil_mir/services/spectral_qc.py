@@ -13,7 +13,7 @@ import pandas as pd
 from soil_mir.io.cache import load_opus_spectra_cached
 from soil_mir.io.opus import list_opus_files, read_opus_spectrum
 from soil_mir.qc import (
-    Criteria, REGIONS, align_group, classify_pair, diagnose, group_filenames,
+    REGIONS, align_group, classify_pair, diagnose, group_filenames,
     group_issues, mad_threshold, pair_metrics,
 )
 
