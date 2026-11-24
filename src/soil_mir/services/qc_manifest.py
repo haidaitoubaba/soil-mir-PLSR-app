@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -123,6 +124,121 @@ def fingerprints(batch):
     return result
 
 
+DECISION_ORDER = ("Pending review", "Keep", "Exclude", "Rescan required")
+EXPORT_FOLDERS = {
+    "Pending review": "Pending_review", "Keep": "Keep", "Exclude": "Exclude",
+    "Rescan required": "Rescan_required",
+}
+
+
+def apply_review_edits(file_table, decisions, edits):
+    """Apply exact filename edits atomically, without changing unedited records."""
+    diagnoses = dict(zip(file_table["File Name"], file_table["File Diagnosis"]))
+    result = dict(decisions)
+    seen = set()
+    timestamp = datetime.now(timezone.utc).isoformat()
+    for edit in edits:
+        name, choice = edit["File Name"], edit["Manual decision"]
+        if name not in diagnoses or name in seen or choice not in DECISIONS:
+            raise ValueError(f"Invalid or duplicate review edit: {name}")
+        seen.add(name)
+        previous = decisions.get(name, {})
+        old_choice = previous.get("decision", "Pending review")
+        old_reason = previous.get("reason", "")
+        reason = edit.get("Manual reason", "")
+        if not isinstance(reason, str):
+            reason = "" if pd.isna(reason) else str(reason)
+        if choice == old_choice and reason == old_reason:
+            continue
+        if choice == "Keep" and diagnoses[name] in {"Invalid", "Unmatched"}:
+            raise ValueError(f"Cannot Keep an invalid or unmatched spectrum: {name}")
+        # Do not carry an outdated reason forward when changing a decision in a table.
+        if choice != old_choice and reason == old_reason:
+            reason = ""
+        result[name] = {
+            "decision": choice, "reason": reason, "timestamp": timestamp, "source": "Manual",
+        }
+    return result
+
+
+def decision_export_rows(file_table, decisions, choices):
+    """Select explicit current decisions; absent decisions remain Pending review."""
+    chosen = set(choices)
+    if not chosen or not chosen <= DECISIONS:
+        raise ValueError("Select at least one valid decision to export.")
+    names = set(file_table["File Name"])
+    if set(decisions) - names:
+        raise ValueError("Review contains files outside the batch.")
+    rows = []
+    for row in file_table.to_dict("records"):
+        name = row["File Name"]
+        record = decisions.get(name, {})
+        choice = record.get("decision", "Pending review")
+        if choice not in DECISIONS:
+            raise ValueError(f"Invalid review decision for {name}")
+        if choice not in chosen:
+            continue
+        if choice == "Keep" and row["File Diagnosis"] in {"Invalid", "Unmatched"}:
+            raise ValueError(f"Cannot export invalid or unmatched spectrum as Keep: {name}")
+        sample = row.get("Sample ID", "")
+        rows.append({
+            "File Name": name, "Sample": "" if pd.isna(sample) else sample,
+            "Decision": choice, "Reason": record.get("reason", ""),
+            "Decision source": record.get("source", "Manual" if record else ""),
+            "Review timestamp": record.get("timestamp", ""),
+        })
+    return rows
+
+
+def export_decision_spectra(batch, tables, decisions, choices, destination, criteria):
+    """Copy byte-identical OPUS files into a new directory; never edit the source."""
+    rows = decision_export_rows(tables["File QC"], decisions, choices)
+    if not rows:
+        raise ValueError("No spectra match the selected decisions.")
+    source = Path(batch.directory).resolve()
+    target = Path(destination).expanduser().resolve()
+    if target == source or source in target.parents:
+        raise ValueError("Choose an export location outside the original spectra directory.")
+    if _inventory(source) != batch.inventory:
+        raise ValueError("OPUS files changed since QC; rerun before exporting.")
+    for row in rows:
+        name = row["File Name"]
+        if Path(name).name != name or name not in batch.content_hashes:
+            raise ValueError(f"Invalid source filename: {name}")
+        if digest_file(source / name) != batch.content_hashes[name]:
+            raise ValueError(f"OPUS file content changed since QC: {name}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.mkdir(exist_ok=False)
+    try:
+        for row in rows:
+            name = row["File Name"]
+            folder = target / EXPORT_FOLDERS[row["Decision"]]
+            folder.mkdir(exist_ok=True)
+            copied = folder / name
+            shutil.copy2(source / name, copied)
+            checksum = digest_file(copied)
+            if checksum != batch.content_hashes[name]:
+                raise ValueError(f"Copy verification failed: {name}")
+            row["SHA-256"] = checksum
+            row["Relative path"] = copied.relative_to(target).as_posix()
+        if _inventory(source) != batch.inventory:
+            raise ValueError("OPUS files changed during export; rerun QC.")
+        pd.DataFrame(rows).to_csv(
+            target / "Exported_Spectra.csv", index=False, encoding="utf-8-sig"
+        )
+        with (target / "Export_Settings.json").open("x", encoding="utf-8") as stream:
+            json.dump({
+                "created_utc": datetime.now(timezone.utc).isoformat(),
+                "input": input_settings(batch), "criteria": criteria_dict(criteria),
+                "selected_decisions": sorted(set(choices)), "files": len(rows),
+                "note": "Decision-filtered copy, not a frozen calibration selection.",
+            }, stream, ensure_ascii=False, indent=2, allow_nan=False)
+    except Exception:
+        shutil.rmtree(target)
+        raise
+    return target, len(rows)
+
+
 def review_selection(batch, tables, decisions, *, freeze=False,
                      min_retained=2, allow_single=False):
     names = {row[0] for row in batch.inventory}
@@ -132,8 +248,8 @@ def review_selection(batch, tables, decisions, *, freeze=False,
         choice = decision.get("decision")
         if choice not in DECISIONS:
             raise ValueError(f"Invalid review decision for {name}")
-        if choice != "Pending review" and not decision.get("reason", "").strip():
-            raise ValueError(f"Missing explicit review reason for {name}")
+        if not isinstance(decision.get("reason", ""), str):
+            raise ValueError(f"Invalid review reason for {name}")
     groups = {scan.filename: {"sample": scan.sample, "replicate": scan.replicate,
                              "well": scan.well}
               for scans in batch.groups.values() for scan in scans}

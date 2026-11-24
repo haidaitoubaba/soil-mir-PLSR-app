@@ -25,3 +25,9 @@ implementation is not asserted to reproduce OPUS Quick Compare.
 
 - Dual evaluation: first-replicate Pearson versus full pairwise Pearson, with method agreement,
   comparable-group pass rates and threshold sensitivity exports; active all-pair review unchanged.
+
+## RC4 review and file export
+
+- Optional review reasons throughout; shared editable decision tables in sample and export views.
+- Export original OPUS copies by saved review decision, with verified hashes, separate decision
+  subfolders, CSV index and export settings; never changes original files or freezes selection.
