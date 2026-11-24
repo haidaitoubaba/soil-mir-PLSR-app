@@ -119,3 +119,34 @@ def test_auto_range_ignores_unmatched_and_unreadable(tmp_path, monkeypatch):
     assert batch.effective_lower == 600
     assert batch.effective_upper == 4000
     assert spectral_qc.evaluate_batch(batch, Criteria())["Sample QC"].iloc[0]["Sample QC"] == "Pass"
+
+
+
+def test_auto_range_reads_actual_opus_metadata_without_nominal_limits(tmp_path, monkeypatch):
+    import brukeropusreader
+
+    names = [f"NSSH_1_{i}_A{i}.0" for i in (1, 2, 3)]
+    for name in names:
+        (tmp_path / name).touch()
+    axis = np.linspace(4001.5, 399.5, 1802)
+    # AB storage is padded; NPT, FXV and LXV define the measured coordinates.
+    data = {
+        "AB": np.append(1 + np.sin(axis / 100), [999., 999.]),
+        "AB Data Parameter": {"NPT": len(axis), "FXV": axis[0], "LXV": axis[-1], "CSF": 1.},
+    }
+    monkeypatch.setattr(brukeropusreader, "read_file", lambda _: data)
+    batch = spectral_qc.prepare_batch(tmp_path)
+    assert batch.lower is None and batch.upper is None
+    assert batch.effective_lower == 399.5
+    assert batch.effective_upper == 4001.5
+    assert batch.native_range_count == 1
+    assert batch.native_envelope_lower == 399.5
+    assert batch.native_envelope_upper == 4001.5
+    for _, native_axis in batch.raw.values():
+        assert len(native_axis) == len(axis)
+    tables = spectral_qc.evaluate_batch(batch, Criteria())
+    assert tables["Sample QC"]["Sample QC"].tolist() == ["Pass"]
+    assert tables["Pairwise QC"]["Points"].tolist() == [len(axis)] * 3
+    strict = spectral_qc.prepare_batch(tmp_path, range_mode="manual")
+    assert strict.effective_lower == 600
+    assert strict.effective_upper == 4000

@@ -67,7 +67,7 @@ range_mode = st.radio(
     "QC spectral range",
     ["auto", "manual"],
     format_func=lambda mode: (
-        "Automatic — shared measured range within 600–4000 cm⁻¹"
+        "Automatic — read full native OPUS range"
         if mode == "auto" else "Manual — require complete measured coverage"
     ),
 )
@@ -76,11 +76,12 @@ if range_mode == "manual":
     lower = a.number_input("QC minimum (cm⁻¹)", value=600., format="%.4f")
     upper = b.number_input("QC maximum (cm⁻¹)", value=4000., format="%.4f")
 else:
-    lower, upper = 600., 4000.
+    lower, upper = None, None
     st.caption(
-        "Uses one shared interval across all readable, matched spectra within 600–4000 cm⁻¹. "
-        "Actual bounds are shown after QC; no extrapolation. A narrow scan can limit the "
-        "batch range; use manual bounds to flag insufficient coverage instead."
+        "Reads native absorbance-block FXV/LXV and valid point count (NPT) from OPUS files. "
+        "Uses the common measured interval across readable, matched scans, without nominal "
+        "bounds or extrapolation. A narrow scan can limit the batch range; use manual bounds "
+        "to flag insufficient coverage instead."
     )
 exclude_co2 = st.checkbox("Exclude CO₂ from global metrics (retain regional diagnostic)")
 region_input = st.text_input(
@@ -218,13 +219,11 @@ if data.effective_lower is not None:
         f"**Shared comparison bounds:** {data.effective_lower:.4f}–"
         f"{data.effective_upper:.4f} cm⁻¹ (no extrapolation)."
     )
-    if data.range_mode == "auto" and (
-        data.effective_lower > lower or data.effective_upper < upper
-    ):
+    if data.range_mode == "auto" and data.native_range_count > 1:
         st.warning(
-            "The measured overlap is narrower than 600–4000 cm⁻¹. "
-            "Review native bounds in File QC. All samples use the same comparison interval; "
-            "regional diagnostics outside it may be unavailable. "
+            f"{data.native_range_count} distinct native ranges found; the full envelope is "
+            f"{data.native_envelope_lower:.4f}–{data.native_envelope_upper:.4f} cm⁻¹. "
+            "Only the common measured interval is compared. Review native bounds in File QC. "
             "Switch to Manual to require a fixed interval."
         )
 if int(overview["Evaluable samples"]) == 0:

@@ -33,8 +33,8 @@ class Batch:
     pattern: str
     batch_label: str
     expected: int
-    lower: float
-    upper: float
+    lower: float | None
+    upper: float | None
     exclude_co2: bool
     regions: tuple
     groups: dict
@@ -49,6 +49,9 @@ class Batch:
     effective_lower: float | None = None
     effective_upper: float | None = None
     read_errors: dict | None = None
+    native_range_count: int = 0
+    native_envelope_lower: float | None = None
+    native_envelope_upper: float | None = None
 
 
 def prepare_batch(
@@ -63,10 +66,14 @@ def prepare_batch(
     names = [name for name, _, _ in inventory]
     content_hashes = {name: digest_file(Path(directory) / name) for name in names}
     groups, unmatched, detected = resolve_groups(names, pattern, mapping)
-    if not np.isfinite([lower, upper]).all() or lower >= upper:
-        raise ValueError("QC spectral minimum must be below maximum.")
     if range_mode not in {"auto", "manual"}:
         raise ValueError("QC range mode must be auto or manual.")
+    if range_mode == "auto":
+        # No nominal bounds are imposed on a native-range comparison.
+        lower, upper = None, None
+    elif (lower is None or upper is None
+          or not np.isfinite([lower, upper]).all() or lower >= upper):
+        raise ValueError("QC spectral minimum must be below maximum.")
     group_issues([], expected)
     raw, errors, aligned, pair_data = {}, {}, {}, {}
     if progress:
@@ -101,17 +108,17 @@ def prepare_batch(
             continue
         if name in matched:
             native_bounds[name] = (float(axis.min()), float(axis.max()))
-    effective_lower, effective_upper = float(lower), float(upper)
+    effective_lower, effective_upper = lower, upper
     if range_mode == "auto" and native_bounds:
-        effective_lower = max(effective_lower, max(v[0] for v in native_bounds.values()))
-        effective_upper = min(effective_upper, min(v[1] for v in native_bounds.values()))
+        effective_lower = max(v[0] for v in native_bounds.values())
+        effective_upper = min(v[1] for v in native_bounds.values())
         if effective_lower >= effective_upper:
             raise ValueError(
-                "No shared measured range within the requested interval. "
+                "No shared measured range across matched OPUS files. "
                 "Inspect native spectral ranges, use a single batch, or specify manual bounds."
             )
     for name, (values, axis) in raw.items():
-        if name in errors:
+        if name in errors or name not in matched or effective_lower is None:
             continue
         low, high = float(axis.min()), float(axis.max())
         if low > effective_lower or high < effective_upper:
@@ -167,6 +174,9 @@ def prepare_batch(
         mapping, content_hashes, range_mode,
         effective_lower if native_bounds else None,
         effective_upper if native_bounds else None, read_errors,
+        len(set(native_bounds.values())),
+        min((v[0] for v in native_bounds.values()), default=None),
+        max((v[1] for v in native_bounds.values()), default=None),
     )
 
 
@@ -376,6 +386,9 @@ def evaluate_batch(batch, criteria, decisions=None):
         "Directory": batch.directory, "Batch": batch.batch_label, "Pattern": batch.pattern,
         "Expected replicates": batch.expected, "Lower": batch.lower, "Upper": batch.upper,
         "QC range mode": batch.range_mode,
+        "Distinct native ranges": batch.native_range_count,
+        "Native envelope minimum (cm⁻¹)": batch.native_envelope_lower,
+        "Native envelope maximum (cm⁻¹)": batch.native_envelope_upper,
         "Effective minimum (cm⁻¹)": batch.effective_lower,
         "Effective maximum (cm⁻¹)": batch.effective_upper,
         "Exclude CO2 globally": batch.exclude_co2, "OPUS mode": "native_npt",
