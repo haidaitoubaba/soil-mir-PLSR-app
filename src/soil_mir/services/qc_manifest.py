@@ -16,10 +16,11 @@ SCHEMA = 1
 DECISIONS = {"Pending review", "Keep", "Exclude", "Rescan required"}
 
 
-def read_mapping(source, *, excel=False):
+def read_mapping(source, *, excel=False, sheet_name=0):
     """Read only identity columns; preserve textual identifiers and exact filenames."""
     reader = pd.read_excel if excel else pd.read_csv
-    frame = reader(source, dtype=str, keep_default_na=False)
+    kwargs = {"sheet_name": sheet_name} if excel else {}
+    frame = reader(source, dtype=str, keep_default_na=False, **kwargs)
     required = {"File Name", "Sample"}
     if not required <= set(frame.columns):
         raise ValueError("Mapping needs File Name and Sample; Replicate is recommended.")
@@ -113,13 +114,15 @@ def fingerprints(batch):
     for name, size, mtime in batch.inventory:
         result.append({"filename": name, "size": size, "mtime_ns": mtime,
                        "sha256": digest_file(Path(batch.directory) / name)})
+        if result[-1]["sha256"] != batch.content_hashes[name]:
+            raise ValueError(f"OPUS file content changed since QC: {name}")
     if _inventory(batch.directory) != batch.inventory:
         raise ValueError("OPUS files changed during fingerprinting; rerun QC.")
     return result
 
 
-def build_manifest(batch, criteria, tables, decisions, *, freeze=False,
-                   min_retained=2, allow_single=False):
+def review_selection(batch, tables, decisions, *, freeze=False,
+                     min_retained=2, allow_single=False):
     names = {row[0] for row in batch.inventory}
     if set(decisions) - names:
         raise ValueError("Review contains files outside the batch.")
@@ -146,7 +149,7 @@ def build_manifest(batch, criteria, tables, decisions, *, freeze=False,
             if sample is None or file_status[name] == "Invalid":
                 raise ValueError(f"Unmatched or unreadable file cannot be approved: {name}")
             retained.append(name)
-        elif statuses.get(sample) == "Pass":
+        elif name not in decisions and statuses.get(sample) == "Pass":
             retained.append(name)  # only frozen by explicit batch confirmation
         else:
             pending.append(name)
@@ -161,11 +164,36 @@ def build_manifest(batch, criteria, tables, decisions, *, freeze=False,
             raise ValueError(f"{len(pending)} unresolved files; review or exclude them first.")
         if not retained:
             raise ValueError("No retained spectra.")
+        for sample, count in counts.items():
+            if not count:
+                continue
+            keep = [name for name in retained if groups[name]["sample"] == sample]
+            ids = [groups[name]["replicate"] for name in keep]
+            if any(rep < 1 or rep > batch.expected for rep in ids) or len(set(ids)) != len(ids):
+                raise ValueError(f"Resolve missing, extra or duplicate replicate IDs: {sample}")
+            if sample not in batch.aligned:
+                raise ValueError(f"Retained spectra lack valid alignment: {sample}")
+            if any(m is None for a, b, m, _ in batch.pair_data[sample][0]
+                   if a.filename in keep and b.filename in keep):
+                raise ValueError(f"Retained spectra contain invalid comparisons: {sample}")
         for sample in exceptions:
             keep = [name for name in retained if groups[name]["sample"] == sample]
             if (not allow_single or len(keep) != 1
                     or decisions.get(keep[0], {}).get("decision") != "Keep"):
                 raise ValueError(f"Insufficient retained spectra for {sample}; review the sample.")
+    return groups, {
+        "frozen": freeze, "retained": retained, "excluded": excluded, "pending": pending,
+        "retained_counts": counts, "min_retained": min_retained,
+        "single_exceptions": exceptions if freeze else [],
+    }
+
+
+def build_manifest(batch, criteria, tables, decisions, *, freeze=False,
+                   min_retained=2, allow_single=False):
+    groups, selection = review_selection(
+        batch, tables, decisions, freeze=freeze,
+        min_retained=min_retained, allow_single=allow_single,
+    )
     payload = {
         "schema": SCHEMA, "software_version": __version__,
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -175,11 +203,7 @@ def build_manifest(batch, criteria, tables, decisions, *, freeze=False,
             name: json.loads(tables[name].to_json(orient="records", double_precision=15))
             for name in ("Sample QC", "Pairwise QC", "Regional QC", "File QC", "Rescan List")
         },
-        "selection": {
-            "frozen": freeze, "retained": retained, "excluded": excluded, "pending": pending,
-            "retained_counts": counts, "min_retained": min_retained,
-            "single_exceptions": exceptions if freeze else [],
-        },
+        "selection": selection,
     }
     payload["manifest_id"] = manifest_id(payload)
     return payload
@@ -210,6 +234,12 @@ def validate_manifest(payload, directory, *, frozen=False):
     if frozen and not payload["selection"]["frozen"]:
         raise ValueError("QC selection is not frozen and approved.")
     expected = {item["filename"]: item for item in payload["files"]}
+    if frozen:
+        selection = payload["selection"]
+        retained, excluded = set(selection["retained"]), set(selection["excluded"])
+        if (not retained or retained & excluded or retained | excluded != set(expected)
+                or selection["pending"] or not retained <= set(payload["groups"])):
+            raise ValueError("QC selection is incomplete or inconsistent.")
     inventory = _inventory(directory)
     if set(expected) != {name for name, _, _ in inventory}:
         raise ValueError("OPUS folder membership changed; QC review is stale.")
@@ -239,3 +269,17 @@ def filter_reference(frame, columns, payload):
     if filtered.empty:
         raise ValueError("No reference rows retained by the QC selection.")
     return filtered, int((~names.isin(retained)).sum())
+
+
+def check_retained_counts(frame, columns, payload):
+    """Property-specific joins and range filters must not bypass minimum scan policy."""
+    selection = payload["selection"]
+    grouped = frame.groupby(columns.sample_id)[columns.reference_file].nunique()
+    minimum = selection["min_retained"]
+    allowed = set(selection["single_exceptions"])
+    for sample, count in grouped.items():
+        if count < minimum and not (count == 1 and str(sample) in allowed):
+            raise ValueError(
+                f"Property reference rows retain only {count} scan(s) for {sample}; "
+                "review the reference table or QC exceptions."
+            )

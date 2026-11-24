@@ -12,7 +12,7 @@ import pandas as pd
 
 from soil_mir.io.cache import load_opus_spectra_cached
 from soil_mir.io.opus import list_opus_files, read_opus_spectrum
-from soil_mir.services.qc_manifest import resolve_groups
+from soil_mir.services.qc_manifest import digest_file, resolve_groups
 from soil_mir.qc import (
     REGIONS, align_group, classify_pair, diagnose,
     group_issues, mad_threshold, pair_metrics,
@@ -44,6 +44,7 @@ class Batch:
     aligned: dict
     pair_data: dict
     mapping: dict | None = None
+    content_hashes: dict = None
 
 
 def prepare_batch(
@@ -56,6 +57,7 @@ def prepare_batch(
     if not inventory:
         raise ValueError("No OPUS files with numeric extensions were found.")
     names = [name for name, _, _ in inventory]
+    content_hashes = {name: digest_file(Path(directory) / name) for name in names}
     groups, unmatched, detected = resolve_groups(names, pattern, mapping)
     if not np.isfinite([lower, upper]).all() or lower >= upper:
         raise ValueError("QC spectral minimum must be below maximum.")
@@ -65,7 +67,10 @@ def prepare_batch(
         progress(0., "Reading OPUS spectra")
     # A broken file must never prevent valid groups from being evaluated.
     try:
-        raw, _ = load_opus_spectra_cached(directory, names, cache_root)
+        raw, _ = load_opus_spectra_cached(
+            directory, names, cache_root,
+            **({"content_hashes": content_hashes} if cache_root else {}),
+        )
     except Exception:
         for name in names:
             try:
@@ -106,7 +111,7 @@ def prepare_batch(
         raise ValueError("Files changed during QC. Please rerun.")
     return Batch(
         directory, inventory, detected, batch_label, expected, lower, upper,
-        exclude_co2, tuple(regions), groups, unmatched, raw, errors, aligned, pair_data, mapping,
+        exclude_co2, tuple(regions), groups, unmatched, raw, errors, aligned, pair_data, mapping, content_hashes,
     )
 
 

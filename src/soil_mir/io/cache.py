@@ -94,6 +94,7 @@ def load_opus_spectra_cached(
     cache_root: str | Path | None = None,
     *,
     opus_axis_mode: str = OPUS_NATIVE,
+    content_hashes: dict[str, str] | None = None,
 ) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], OpusCacheStats]:
     directory = Path(spectra_dir).expanduser().resolve()
     if not directory.is_dir():
@@ -121,6 +122,8 @@ def load_opus_spectra_cached(
         if not path.is_file():
             raise FileNotFoundError(f"Referenced OPUS file not found: {path}")
         signature = _file_signature(path)
+        if content_hashes is not None:
+            signature["sha256"] = content_hashes[name]
         entry = payload["entries"].get(name)
 
         if _valid_entry(entry, signature):

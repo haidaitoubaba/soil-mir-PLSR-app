@@ -24,9 +24,11 @@ from soil_mir.services.calibration import (
     run_validation_analysis,
 )
 from soil_mir.services.history import (
+    load_run_config,
     load_saved_run,
     pending_run_keys,
 )
+from soil_mir.services.qc_manifest import validate_manifest
 from soil_mir.validation import RunCancelled
 
 
@@ -57,9 +59,6 @@ def _emit(
         )
 
 
-from soil_mir.services.qc_manifest import validate_manifest
-
-
 def execute_validation_run(
     *,
     datasets: dict,
@@ -83,6 +82,10 @@ def execute_validation_run(
     """
     run_dir = None
     try:
+        if resume_run_dir and (Path(resume_run_dir) / "Run_Config.json").is_file():
+            saved_qc = load_run_config(resume_run_dir).get("qc_manifest")
+            if saved_qc != qc_manifest:
+                raise ValueError("Resume must reuse the original QC selection.")
         if qc_manifest is not None:
             validate_manifest(qc_manifest, spectra_dir, frozen=True)
             if any(getattr(d, "qc_manifest_id", "") != qc_manifest["manifest_id"]
@@ -110,6 +113,7 @@ def execute_validation_run(
                 methods=methods,
                 spectra_dir=spectra_dir,
                 reference_excel=reference_excel,
+                **({"qc_manifest_id": qc_manifest["manifest_id"]} if qc_manifest else {}),
             )
             write_json(
                 run_dir / "Run_Config.json",

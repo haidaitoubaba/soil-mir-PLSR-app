@@ -15,7 +15,9 @@ from soil_mir.io.reference import (
     read_property_sheet,
 )
 from soil_mir.modeling import fit_calibration_model
-from soil_mir.services.qc_manifest import filter_reference, validate_manifest
+from soil_mir.services.qc_manifest import (
+    check_retained_counts, filter_reference, validate_manifest,
+)
 from soil_mir.regions import prepare_region_config
 from soil_mir.transforms import apply_transform
 from soil_mir.validation import (
@@ -217,6 +219,9 @@ def load_calibration_dataset(
         if metadata_exclude is None
         else bool(metadata_exclude)
     )
+
+    if qc_manifest is not None:
+        check_retained_counts(frame, columns, qc_manifest)
 
     filenames = frame[columns.reference_file].astype(str).tolist()
     spectra_by_name, cache_stats = load_opus_spectra_cached(
@@ -694,8 +699,8 @@ def preflight_validation_methods(
             "ref_min": dataset.reference_filter_min,
             "ref_max": dataset.reference_filter_max,
             "qc_manifest_id": dataset.qc_manifest_id,
-        "excluded_qc_rows": dataset.excluded_qc_rows,
-        "excluded_reference_rows": dataset.excluded_reference_rows,
+            "excluded_qc_rows": dataset.excluded_qc_rows,
+            "excluded_reference_rows": dataset.excluded_reference_rows,
             "excluded_reference_samples": dataset.excluded_reference_samples,
             "model_role": "final_all_samples",
             "use_group_stratification": bool(

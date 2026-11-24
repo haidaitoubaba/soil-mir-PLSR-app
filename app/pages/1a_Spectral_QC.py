@@ -19,7 +19,7 @@ from soil_mir.services.spectral_qc import (
 
 from soil_mir.services.qc_manifest import (
     build_manifest, criteria_from_dict, read_mapping, resolve_groups,
-    save_manifest, validate_manifest,
+    review_selection, save_manifest, validate_manifest,
 )
 
 st.set_page_config(page_title="Spectral QC", page_icon="🔬", layout="wide")
@@ -46,9 +46,12 @@ with st.expander("Advanced: optional identity mapping"):
     upload = st.file_uploader("CSV / Excel mapping", type=["csv", "xlsx"])
     if upload is not None:
         try:
-            mapping = read_mapping(
-                io.BytesIO(upload.getvalue()), excel=upload.name.endswith(".xlsx")
-            )
+            excel = upload.name.endswith(".xlsx")
+            sheet = 0
+            if excel:
+                with pd.ExcelFile(io.BytesIO(upload.getvalue())) as book:
+                    sheet = st.selectbox("Mapping worksheet", book.sheet_names)
+            mapping = read_mapping(io.BytesIO(upload.getvalue()), excel=excel, sheet_name=sheet)
         except Exception as exc:
             st.error(f"Invalid mapping: {exc}")
             st.stop()
@@ -169,6 +172,7 @@ if st.button("Run QC", type="primary", disabled=not names):
 if "qc_data" not in st.session_state:
     st.stop()
 if st.session_state.get("qc_config") != config:
+    st.session_state.pop("qc_frozen", None)
     st.warning("Inputs or files have changed. Run QC again to refresh metrics.")
     st.stop()
 data = st.session_state.qc_data
@@ -363,6 +367,20 @@ st.warning(
 )
 min_retained = st.number_input("Minimum retained scans per sample", min_value=2, value=2)
 allow_single = st.checkbox("Allow explicitly reviewed single-scan exceptions")
+try:
+    _, selection_preview = review_selection(
+        data, tables, st.session_state.qc_reviews, min_retained=min_retained,
+    )
+    st.write(
+        f"Retained: {len(selection_preview['retained'])}; "
+        f"excluded: {len(selection_preview['excluded'])}; "
+        f"pending: {len(selection_preview['pending'])}"
+    )
+    with st.expander("Retained scans by sample"):
+        st.dataframe(pd.DataFrame(list(selection_preview["retained_counts"].items()),
+                                  columns=["Sample ID", "Retained scans"]), hide_index=True)
+except ValueError as exc:
+    st.warning(str(exc))
 confirmed = st.checkbox(
     "Confirm suggested Keep for passing groups and all recorded manual decisions"
 )
