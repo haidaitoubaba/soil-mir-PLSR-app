@@ -325,8 +325,11 @@ if not summary.empty:
         fig, ax = plt.subplots()
         for i, name in enumerate(filenames):
             for other in filenames[i+1:]:
-                if name in visible and other in visible and name in processed and other in processed:
-                    ax.plot(plot_axis, processed[name] - processed[other], label=f"{name} - {other}")
+                if (name in visible and other in visible
+                        and name in processed and other in processed):
+                    ax.plot(
+                        plot_axis, processed[name] - processed[other], label=f"{name} - {other}"
+                    )
         ax.axhline(0, color="gray", linewidth=.8)
         ax.invert_xaxis()
         ax.set_title(f"Pairwise difference — {method}")
@@ -379,7 +382,8 @@ if st.session_state.get("qc_review_notice"):
 with st.expander("All files and unresolved inputs"):
     file_table = tables["File QC"]
     selected = st.multiselect(
-        "Filter file diagnosis", ["Consistent", "Suspected", "Needs review", "Invalid", "Unmatched"],
+        "Filter file diagnosis",
+        ["Consistent", "Suspected", "Needs review", "Invalid", "Unmatched"],
         default=["Consistent", "Suspected", "Needs review", "Invalid", "Unmatched"],
     )
     show_pending = st.checkbox("Pending decisions only")
