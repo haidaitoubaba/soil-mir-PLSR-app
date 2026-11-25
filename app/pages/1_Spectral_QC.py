@@ -123,7 +123,8 @@ if section == "Setup":
             st.stop()
     else:
         if not applied_directory(state):
-            st.caption("Inspect Data to link a directory, or use independent QC without reference data.")
+            st.caption("Inspect Data to link a directory, or use independent QC "
+                       "without reference data.")
         a, b = st.columns([5, 1])
         if b.button("Browse", key="qc_browse"):
             try:
@@ -344,6 +345,7 @@ if section == "Setup":
             request_section("qc", "Overview")
             st.rerun()
         except Exception as exc:
+            invalidate_source(st.session_state, "QC did not complete successfully.")
             st.session_state.pop("qc_data", None)
             st.error(f"QC failed: {exc}")
 
