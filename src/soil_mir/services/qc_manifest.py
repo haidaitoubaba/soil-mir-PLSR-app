@@ -1,6 +1,7 @@
 """Auditable, local QC snapshots and explicit calibration selections."""
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 import shutil
@@ -131,6 +132,25 @@ EXPORT_FOLDERS = {
 }
 
 
+def review_history_push(current, updated, history, *, limit=20):
+    """Record one prior state per effective saved action, including bulk changes."""
+    if current == updated:
+        return history
+    return [*history, deepcopy(current)][-limit:]
+
+
+def review_history_undo(current, history):
+    """Return the last saved decision state and remaining undo history."""
+    if not history:
+        return current, history
+    return deepcopy(history[-1]), history[:-1]
+
+
+def decision_source(record):
+    """Distinguish unreviewed files from explicit manual or applied decisions."""
+    return record.get("source", "Manual" if record else "Not reviewed")
+
+
 def apply_review_edits(file_table, decisions, edits):
     """Apply exact filename edits atomically, without changing unedited records."""
     diagnoses = dict(zip(file_table["File Name"], file_table["File Diagnosis"]))
@@ -184,7 +204,7 @@ def decision_export_rows(file_table, decisions, choices):
         rows.append({
             "File Name": name, "Sample": "" if pd.isna(sample) else sample,
             "Decision": choice, "Reason": record.get("reason", ""),
-            "Decision source": record.get("source", "Manual" if record else ""),
+            "Decision source": decision_source(record),
             "Review timestamp": record.get("timestamp", ""),
         })
     return rows

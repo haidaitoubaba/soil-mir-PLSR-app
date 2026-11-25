@@ -13,7 +13,7 @@ import pandas as pd
 from soil_mir.io.cache import load_opus_spectra_cached
 from soil_mir.io.opus import list_opus_files, read_opus_spectrum, validate_wavenumbers
 from soil_mir.preprocessing import fit_transform_preprocessor
-from soil_mir.services.qc_manifest import digest_file, resolve_groups
+from soil_mir.services.qc_manifest import decision_source, digest_file, resolve_groups
 from soil_mir.qc import (
     REGIONS, align_group, classify_pair, compare_strategies, diagnose,
     group_issues, mad_threshold, pair_metrics,
@@ -350,7 +350,7 @@ def evaluate_batch(batch, criteria, decisions=None):
                 "Reason": "; ".join(row["Reason"] for row in related if row["Reason"]),
                 "Manual decision": action, "Manual reason": manual.get("reason", ""),
                 "Review timestamp": manual.get("timestamp", ""),
-                "Decision source": manual.get("source", "Manual" if manual else ""),
+                "Decision source": decision_source(manual),
                 "Recommended Action": recommendation,
             }
             if name in batch.raw:
@@ -401,7 +401,7 @@ def evaluate_batch(batch, criteria, decisions=None):
             "Manual decision": manual.get("decision", "Pending review"),
             "Manual reason": manual.get("reason", ""),
             "Review timestamp": manual.get("timestamp", ""),
-            "Decision source": manual.get("source", "Manual" if manual else ""),
+            "Decision source": decision_source(manual),
         })
     sample_frame = pd.DataFrame(samples)
     comparison_frame = pd.DataFrame(comparison, columns=[

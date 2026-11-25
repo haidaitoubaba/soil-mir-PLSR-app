@@ -222,3 +222,68 @@ def test_invalid_review_keep_rejected():
     for name in ("a.0", "b.0"):
         with pytest.raises(ValueError, match="Cannot Keep"):
             apply_review_edits(frame, {}, [{"File Name": name, "Manual decision": "Keep"}])
+
+
+def test_review_history_clear_and_undo():
+    from soil_mir.services.qc_manifest import review_history_push, review_history_undo
+
+    original = {"a.0": {"decision": "Keep", "reason": "checked", "source": "Manual"}}
+    batch = {**original, "b.0": {
+        "decision": "Rescan required", "reason": "suspected",
+        "source": "Applied recommendation",
+    }}
+    history = review_history_push(original, batch, [])
+    assert review_history_push(batch, batch, history) is history
+    history = review_history_push(batch, {}, history)
+    restored, history = review_history_undo({}, history)
+    assert restored == batch
+    restored, history = review_history_undo(restored, history)
+    assert restored == original
+    assert not history
+    restored, history = review_history_undo(restored, history)
+    assert restored == original
+    assert not history
+
+
+def test_review_history_is_bounded_and_isolated():
+    from soil_mir.services.qc_manifest import review_history_push, review_history_undo
+
+    history = []
+    current = {}
+    for i in range(25):
+        updated = {"a.0": {"decision": "Keep", "reason": str(i)}}
+        history = review_history_push(current, updated, history)
+        current = updated
+    assert len(history) == 20
+    restored, remaining = review_history_undo(current, history)
+    assert restored["a.0"]["reason"] == "23"
+    restored["a.0"]["reason"] = "changed"
+    assert history[-1]["a.0"]["reason"] == "23"
+    assert len(remaining) == 19
+
+
+def test_unreviewed_source_and_pending_recommendation(tmp_path, monkeypatch):
+    from soil_mir.services.qc_manifest import decision_export_rows
+
+    names = [f"S1_{i}.0" for i in (1, 2, 3)]
+    for name in names:
+        (tmp_path / name).write_bytes(name.encode())
+    axis = np.linspace(600, 4000, 341)
+    raw = {name: (2 + np.sin(axis / 100 + i), axis) for i, name in enumerate(names)}
+    monkeypatch.setattr(
+        spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
+    )
+    batch = spectral_qc.prepare_batch(tmp_path)
+    decisions = {
+        name: {"decision": "Pending review", "source": "Manual", "reason": ""}
+        for name in names[:2]
+    }
+    tables = spectral_qc.evaluate_batch(batch, Criteria(), decisions)
+    assert spectral_qc.recommended_reviews(tables, decisions) == decisions
+    assert tables["Review decisions"]["Decision source"].tolist() == [
+        "Manual", "Manual", "Not reviewed",
+    ]
+    assert [r["Decision source"] for r in decision_export_rows(
+        tables["File QC"], decisions, ["Pending review"]
+    )] == ["Manual", "Manual", "Not reviewed"]
+    assert tables["Pairwise QC"]["Reference comparison"].tolist() == [True, True, False]

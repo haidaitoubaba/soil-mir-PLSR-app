@@ -23,8 +23,26 @@ from soil_mir.services.spectral_qc import (
 from soil_mir.services.qc_manifest import (
     DECISION_ORDER, apply_review_edits, build_manifest, criteria_from_dict,
     decision_export_rows, export_decision_spectra, input_settings, read_mapping, resolve_groups,
-    review_selection, save_manifest, validate_manifest,
+    review_history_push, review_history_undo, review_selection, save_manifest, validate_manifest,
 )
+
+def set_review_state(updated, notice, *, history=None):
+    """Commit a shared review transaction and invalidate stale frozen selections."""
+    state = st.session_state
+    if updated == state.qc_reviews:
+        return False
+    if history is None:
+        history = review_history_push(
+            state.qc_reviews, updated, state.get("qc_review_history", [])
+        )
+    state.qc_review_history = history
+    state.qc_reviews = updated
+    if state.pop("qc_frozen", None):
+        notice += " Previous frozen selection is no longer current; freeze again if needed."
+    state.qc_review_revision = state.get("qc_review_revision", 0) + 1
+    state.qc_review_notice = notice
+    return True
+
 
 def save_review_edits(edits, file_table):
     try:
@@ -32,11 +50,7 @@ def save_review_edits(edits, file_table):
     except ValueError as exc:
         st.error(str(exc))
         return
-    if updated != st.session_state.qc_reviews:
-        st.session_state.qc_reviews = updated
-        st.session_state.pop("qc_frozen", None)
-        st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
-        st.session_state.qc_review_notice = "Review decisions saved and synchronized."
+    if set_review_state(updated, "Review decisions saved and synchronized."):
         st.rerun()
     else:
         st.info("No review changes to save.")
@@ -234,6 +248,7 @@ if st.button("Run QC", type="primary", disabled=not names):
         st.session_state.qc_data = data
         st.session_state.qc_config = config
         st.session_state.qc_reviews = {}
+        st.session_state.qc_review_history = []
         st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
         st.session_state.pop("qc_frozen", None)
         st.session_state.qc_review_criteria = criteria
@@ -254,6 +269,7 @@ if st.session_state.get("qc_review_criteria") != criteria:
     if st.session_state.qc_reviews:
         archive.append((st.session_state.qc_review_criteria, st.session_state.qc_reviews.copy()))
     st.session_state.qc_reviews = {}
+    st.session_state.qc_review_history = []
     st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
     st.session_state.pop("qc_frozen", None)
     st.session_state.qc_review_criteria = criteria
@@ -355,7 +371,18 @@ if not summary.empty:
     st.dataframe(comparison.loc[comparison["Sample ID"] == sample], hide_index=True)
     pair_frame = tables["Pairwise QC"]
     if not pair_frame.empty:
-        st.dataframe(pair_frame.loc[pair_frame["Sample ID"] == sample], hide_index=True)
+        shown_pairs = pair_frame.loc[pair_frame["Sample ID"] == sample].copy()
+        shown_pairs["Reference comparison"] = shown_pairs["Reference comparison"].map(
+            {True: "Yes", False: "No — all-pairwise only"}
+        )
+        shown_pairs = shown_pairs.rename(columns={
+            "Reference comparison": "Used in USDA-style comparison",
+        })
+        st.caption(
+            "Read-only method membership: Yes = pair includes replicate 1; "
+            "No = only used in all-pairwise comparison. Not a QC pass indicator."
+        )
+        st.dataframe(shown_pairs, hide_index=True)
     regional_frame = tables["Regional QC"]
     if not regional_frame.empty:
         with st.expander("Regional QC"):
@@ -431,7 +458,8 @@ if not summary.empty:
         plt.close(fig)
     file_rows = tables["Replicate Diagnosis"]
     concise = ["Replicate ID", "File Name", "File Diagnosis", "Recommended decision",
-               "Manual decision", "Min similarity (%)", "Recommendation reason"]
+               "Manual decision", "Decision source", "Min similarity (%)",
+               "Recommendation reason"]
     review_editor(file_rows.loc[file_rows["Sample ID"] == sample, concise],
                   "sample", tables["File QC"])
     st.subheader("Review decision")
@@ -456,11 +484,38 @@ st.caption(
 if st.button("Apply recommended decisions to unreviewed files"):
     updated = recommended_reviews(tables, st.session_state.qc_reviews)
     count = len(updated) - len(st.session_state.qc_reviews)
-    st.session_state.qc_reviews = updated
-    st.session_state.pop("qc_frozen", None)
-    st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
-    st.session_state.qc_review_notice = f"Applied {count} recommended decisions."
-    st.rerun()
+    if set_review_state(updated, f"Applied {count} recommended decisions."):
+        st.rerun()
+    st.info("No additional unreviewed files have an actionable recommendation.")
+st.caption(
+    "Decision source: Not reviewed = no saved decision. Manual = explicitly saved "
+    "by you. Applied recommendation = saved by the batch action."
+)
+history = st.session_state.get("qc_review_history", [])
+revision = st.session_state.get("qc_review_revision", 0)
+with st.expander("Reset or undo review decisions"):
+    st.caption(
+        "Clear removes all saved decisions and reasons, not QC metrics or spectra. "
+        "Undo restores the preceding saved state (up to 20 actions in this session). "
+        "History resets after Run QC or a criteria change. Exported files and saved "
+        "manifests are not modified; a changed selection must be frozen again."
+    )
+    confirmed_clear = st.checkbox(
+        "Confirm clearing all manual and applied decisions",
+        key=f"qc_confirm_clear_{revision}",
+        disabled=not st.session_state.qc_reviews,
+    )
+    clear_col, undo_col = st.columns(2)
+    if clear_col.button(
+        "Clear all decisions", disabled=not confirmed_clear or not st.session_state.qc_reviews
+    ):
+        count = len(st.session_state.qc_reviews)
+        if set_review_state({}, f"Cleared {count} decisions. Use Undo to restore them."):
+            st.rerun()
+    if undo_col.button("Undo last decision change", disabled=not history):
+        updated, remaining = review_history_undo(st.session_state.qc_reviews, history)
+        if set_review_state(updated, "Restored previous review state.", history=remaining):
+            st.rerun()
 if st.session_state.get("qc_review_notice"):
     st.success(st.session_state.pop("qc_review_notice"))
 with st.expander("All files and unresolved inputs"):
@@ -477,7 +532,7 @@ with st.expander("All files and unresolved inputs"):
     detailed = st.checkbox("Show detailed metrics and error messages")
     columns = [
         "Sample ID", "Replicate ID", "File Name", "File Diagnosis", "Recommended decision",
-        "Manual decision", "Recommendation reason",
+        "Manual decision", "Decision source", "Recommendation reason",
     ]
     review_editor(display if detailed else display.reindex(columns=columns),
                   "all_files", file_table)
@@ -567,10 +622,9 @@ if restore and st.button("Restore saved review"):
         current = input_settings(data)
         if payload["input"] != current or criteria_from_dict(payload["criteria"]) != criteria:
             raise ValueError("Input settings or thresholds differ from saved review.")
-        st.session_state.qc_reviews = payload["decisions"]
-        st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
-        st.session_state.pop("qc_frozen", None)
-        st.rerun()
+        if set_review_state(payload["decisions"], "Restored saved review."):
+            st.rerun()
+        st.info("Saved review already matches the current decisions.")
     except Exception as exc:
         st.error(f"Cannot restore: {exc}")
 
