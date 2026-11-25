@@ -49,3 +49,16 @@ def test_run_history_delete_requires_explicit_confirmation():
     assert "Delete permanently" in source
     assert "delete_saved_run(" in source
     assert "DELETABLE_RUN_STATUSES" in source
+
+
+
+def test_sidebar_keeps_native_navigation_without_custom_collapse():
+    app = AppTest.from_file(ROOT / "app" / "Home.py", default_timeout=15)
+    app.run()
+    assert not app.exception
+    assert not any(button.key == "rc7_sidebar_toggle" for button in app.sidebar.button)
+    source = (ROOT / "src" / "soil_mir" / "ui_navigation.py").read_text(encoding="utf-8")
+    assert "rc7_sidebar_compact" not in source
+    assert "st.page_link(" in source
+    home_source = (ROOT / "app" / "Home.py").read_text(encoding="utf-8")
+    assert 'initial_sidebar_state="expanded"' in home_source

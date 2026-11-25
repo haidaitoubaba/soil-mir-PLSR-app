@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import io
+import os
 import sys
 import tarfile
 from pathlib import Path
@@ -12,7 +13,9 @@ from pathlib import Path
 from release_common import (
     ROOT,
     iter_release_files,
+    release_directories,
     release_identity,
+    release_timestamp,
     validate_release_inputs,
 )
 
@@ -24,11 +27,11 @@ MAC_REQUIRED_FILES = (
 MAC_INCLUDE_ENTRIES = MAC_REQUIRED_FILES
 
 
-def tar_info(name: str, mode: int, size: int) -> tarfile.TarInfo:
+def tar_info(name: str, mode: int, size: int, timestamp: int) -> tarfile.TarInfo:
     info = tarfile.TarInfo(name)
     info.size = size
     info.mode = mode
-    info.mtime = 0
+    info.mtime = timestamp
     info.uid = 0
     info.gid = 0
     info.uname = ""
@@ -36,8 +39,9 @@ def tar_info(name: str, mode: int, size: int) -> tarfile.TarInfo:
     return info
 
 
-def add_bytes(handle: tarfile.TarFile, name: str, content: bytes, mode: int) -> None:
-    handle.addfile(tar_info(name, mode, len(content)), io.BytesIO(content))
+def add_bytes(handle: tarfile.TarFile, name: str, content: bytes, mode: int,
+              timestamp: int) -> None:
+    handle.addfile(tar_info(name, mode, len(content), timestamp), io.BytesIO(content))
 
 
 def build_bundle(output_dir: Path, label: str, commit: str) -> Path:
@@ -76,10 +80,16 @@ For release validation, see RELEASE_CHECKLIST.md.
 
     build_info = f"version={version}\nlabel={label}\ncommit={commit}\n"
 
+    timestamp = release_timestamp()
+    files = iter_release_files(MAC_INCLUDE_ENTRIES)
     with archive.open("wb") as raw:
-        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=timestamp) as compressed:
             with tarfile.open(fileobj=compressed, mode="w") as handle:
-                for path in iter_release_files(MAC_INCLUDE_ENTRIES):
+                for name in release_directories(bundle_root, files):
+                    info = tar_info(name, 0o755, 0, timestamp)
+                    info.type = tarfile.DIRTYPE
+                    handle.addfile(info)
+                for path in files:
                     relative = path.relative_to(ROOT).as_posix()
                     mode = 0o755 if relative == "run_app.command" else 0o644
                     add_bytes(
@@ -87,6 +97,7 @@ For release validation, see RELEASE_CHECKLIST.md.
                         f"{bundle_root}/{relative}",
                         path.read_bytes(),
                         mode,
+                        timestamp,
                     )
 
                 add_bytes(
@@ -94,14 +105,17 @@ For release validation, see RELEASE_CHECKLIST.md.
                     f"{bundle_root}/MAC_RELEASE_README.txt",
                     release_readme.encode("utf-8"),
                     0o644,
+                    timestamp,
                 )
                 add_bytes(
                     handle,
                     f"{bundle_root}/BUILD_INFO.txt",
                     build_info.encode("utf-8"),
                     0o644,
+                    timestamp,
                 )
 
+    os.utime(archive, (timestamp, timestamp))
     verify_bundle(archive, bundle_root)
     return archive
 

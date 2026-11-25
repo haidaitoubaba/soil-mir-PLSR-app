@@ -5,7 +5,10 @@ import streamlit as st
 from soil_mir.ui_navigation import render_sidebar
 
 
-st.set_page_config(page_title="Soil MIR PLSR", page_icon=":material/eco:", layout="wide")
+st.set_page_config(
+    page_title="Soil MIR PLSR", page_icon=":material/eco:", layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 
 def render_home():
