@@ -494,7 +494,9 @@ if check or run:
                 confirmed_signature=confirmed_signature,
             )
             if input_identity()[0] != config_id:
-                raise ValueError("Input files changed during processing. Repeat compatibility check.")
+                raise ValueError(
+                    "Input files changed during processing. Repeat compatibility check."
+                )
             state.soil_mir_prediction_compatibility = {
                 "config_id": config_id, "report": result["compatibility"],
             }
