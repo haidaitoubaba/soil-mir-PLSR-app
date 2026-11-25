@@ -6,7 +6,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from soil_mir.io.opus import OPUS_LEGACY, OPUS_NATIVE
+from soil_mir.io.opus import OPUS_LEGACY, OPUS_NATIVE, list_opus_files
+from soil_mir.ui_state import request_section, section_navigation
 from soil_mir.preprocessing import LEGACY_PREPROCESSING_NAMES
 from soil_mir.reporting import (
     read_run_manifest,
@@ -38,6 +39,266 @@ st.caption(
     "Preflight first, then nested model selection and outer validation."
 )
 
+@st.fragment(run_every=1.0)
+def render_active_validation():
+    job = st.session_state.get(
+        "soil_mir_active_validation_job"
+    )
+    if job is None:
+        return
+
+    events = job.drain_events()
+    if events:
+        log = st.session_state.setdefault(
+            "soil_mir_background_log",
+            [],
+        )
+        for event in events:
+            st.session_state[
+                "soil_mir_background_progress"
+            ] = event.get(
+                "progress",
+                0.0,
+            )
+            st.session_state[
+                "soil_mir_background_message"
+            ] = event.get(
+                "message",
+                "",
+            )
+            log.append(
+                event.get(
+                    "message",
+                    "",
+                )
+            )
+        if len(log) > 20:
+            del log[:-20]
+
+    st.markdown("### Active validation")
+    st.progress(
+        float(
+            st.session_state.get(
+                "soil_mir_background_progress",
+                0.0,
+            )
+        )
+    )
+    st.write(
+        st.session_state.get(
+            "soil_mir_background_message",
+            "Running...",
+        )
+    )
+
+    if job.cancel_requested:
+        st.warning(
+            "Cancellation requested. The current safe unit of work "
+            "will finish, then the run will stop and remain resumable."
+        )
+    else:
+        if st.button(
+            "Cancel validation",
+            key="cancel_active_validation",
+            type="secondary",
+        ):
+            job.request_cancel()
+            st.session_state[
+                "soil_mir_background_message"
+            ] = (
+                "Cancellation requested; waiting for a safe checkpoint."
+            )
+            st.rerun()
+
+    with st.expander(
+        "Recent run messages",
+        expanded=False,
+    ):
+        for message in st.session_state.get(
+            "soil_mir_background_log",
+            [],
+        ):
+            st.write(message)
+
+    if not job.future.done():
+        return
+
+    try:
+        outcome = job.future.result()
+    except Exception as exc:
+        st.session_state[
+            "soil_mir_last_run_outcome"
+        ] = {
+            "status": "failed",
+            "message": str(exc),
+            "run_dir": "",
+            "pending": [],
+        }
+    else:
+        results = outcome.get(
+            "results",
+            {},
+        )
+        if results:
+            st.session_state[
+                "soil_mir_results"
+            ] = results
+        run_dir = outcome.get(
+            "run_dir",
+            "",
+        )
+        comparison = outcome.get(
+            "comparison_path",
+            "",
+        )
+        if run_dir:
+            st.session_state[
+                "soil_mir_last_run_dir"
+            ] = run_dir
+        st.session_state[
+            "soil_mir_last_comparison"
+        ] = comparison
+
+        pending = outcome.get(
+            "pending",
+            [],
+        )
+        status = outcome.get(
+            "status",
+            "",
+        )
+        if (
+            run_dir
+            and (
+                pending
+                or status
+                in (
+                    "cancelled",
+                    "completed_with_errors",
+                )
+            )
+        ):
+            st.session_state[
+                "soil_mir_resume_run_dir"
+            ] = run_dir
+        elif status == "completed":
+            st.session_state.pop(
+                "soil_mir_resume_run_dir",
+                None,
+            )
+
+        st.session_state[
+            "soil_mir_last_run_outcome"
+        ] = {
+            "status": status,
+            "message": outcome.get(
+                "message",
+                "",
+            ),
+            "run_dir": run_dir,
+            "pending": list(
+                pending
+            ),
+        }
+
+    st.session_state.pop(
+        "soil_mir_active_validation_job",
+        None,
+    )
+    st.session_state.pop(
+        "soil_mir_background_progress",
+        None,
+    )
+    st.session_state.pop(
+        "soil_mir_background_message",
+        None,
+    )
+    st.rerun()
+
+
+section = section_navigation("run")
+active_job = st.session_state.get("soil_mir_active_validation_job")
+run_is_active = active_job is not None
+if run_is_active:
+    if section == "Execution":
+        render_active_validation()
+    else:
+        st.info("A validation is active. It continues using its original input snapshot.")
+        if st.button("Open active execution"):
+            request_section("run", "Execution")
+            st.rerun()
+    st.stop()
+
+if section == "Summary":
+    render_active_validation()
+
+    last_outcome = st.session_state.get(
+        "soil_mir_last_run_outcome"
+    )
+    if last_outcome:
+        status = last_outcome.get(
+            "status",
+            "",
+        )
+        message = last_outcome.get(
+            "message",
+            "",
+        )
+        run_dir = last_outcome.get(
+            "run_dir",
+            "",
+        )
+        pending = last_outcome.get(
+            "pending",
+            [],
+        )
+
+        if status == "completed":
+            st.success(
+                (
+                    f"{message} Saved to {run_dir}."
+                    if run_dir
+                    else message
+                )
+            )
+        elif status == "cancelled":
+            st.warning(
+                "Validation cancelled safely. "
+                f"{len(pending)} analysis combination(s) remain pending. "
+                "Resume this run from Run History."
+            )
+            if run_dir:
+                st.write(
+                    f"Saved run: {run_dir}"
+                )
+        elif status == "completed_with_errors":
+            st.warning(
+                (
+                    f"{message} "
+                    "Successful results were preserved and the run can be resumed."
+                )
+            )
+        elif status == "failed":
+            st.error(
+                f"Validation failed: {message}"
+            )
+
+    if not last_outcome:
+        st.info("No validation outcome in this session.")
+    if st.session_state.get("soil_mir_results"):
+        if st.button("Open Results"):
+            request_section("results", "Overview")
+            st.switch_page("pages/4_Results.py")
+    st.stop()
+
+if st.session_state.get("rc6_configuration_dirty") and not st.session_state.get(
+    "soil_mir_resume_run_dir"
+):
+    st.warning("Configuration has unapplied edits. Validate and save it before a new run.")
+    st.stop()
+if (st.session_state.get("rc6_data_applied_paths") is not None and
+        st.session_state.get("rc6_data_draft") != st.session_state.get("rc6_data_applied_paths")):
+    st.info("Data contains unapplied path edits. This run uses the previously applied paths.")
 required = [
     "soil_mir_spectra_dir",
     "soil_mir_reference_excel",
@@ -250,11 +511,21 @@ if resume_run_dir_text:
 if resume_run_dir_text:
     st.info("Resume uses the original QC selection, if any.")
 else:
-    qc_path = st.text_input(
-        "Optional frozen QC manifest (JSON path)",
-        value=st.session_state.get("soil_mir_qc_manifest_path", ""),
-        help="Leave blank to run the original PLSR workflow without QC filtering.",
-    )
+    qc_path = st.session_state.get("soil_mir_qc_manifest_path", "")
+    if section == "Preflight":
+        widget_key = "_rc6_run_qc_manifest"
+        if st.session_state.get(widget_key) != qc_path:
+            st.session_state[widget_key] = qc_path
+
+        def store_qc_path():
+            st.session_state.soil_mir_qc_manifest_path = st.session_state[widget_key]
+
+        qc_path = st.text_input(
+            "Optional frozen QC manifest (JSON path)", key=widget_key,
+            on_change=store_qc_path,
+            help="Leave blank to run the original PLSR workflow without QC filtering.",
+        )
+        st.session_state.soil_mir_qc_manifest_path = qc_path
     if qc_path.strip():
         try:
             qc_manifest = read_manifest(qc_path)
@@ -296,7 +567,19 @@ if "monte_carlo" in methods:
     )
 
 
+try:
+    source_dir = Path(st.session_state["soil_mir_spectra_dir"]).expanduser()
+    source_files = []
+    for path in list_opus_files(source_dir):
+        stat = path.stat()
+        source_files.append((path.name, stat.st_size, stat.st_mtime_ns))
+    reference = Path(st.session_state["soil_mir_reference_excel"]).expanduser().stat()
+except OSError as exc:
+    st.error(f"Data source unavailable: {exc}")
+    st.stop()
+
 preflight_payload = {
+    "source_inventory": (source_files, reference.st_size, reference.st_mtime_ns),
     "spectra_dir": st.session_state[
         "soil_mir_spectra_dir"
     ],
@@ -342,518 +625,310 @@ if (
             None,
         )
 
-st.subheader("1. Preflight")
-st.caption(
-    "Preflight loads the selected real data, applies any reference-value "
-    "filters, verifies spectral coverage, and checks whether every selected "
-    "validation design is feasible. It does not fit the nested PLSR models."
-)
 
-preflight_exists = (
-    st.session_state.get(
-        "soil_mir_preflight_signature"
+if section == "Preflight":
+    st.subheader("1. Preflight")
+    st.caption(
+        "Preflight loads the selected real data, applies any reference-value "
+        "filters, verifies spectral coverage, and checks whether every selected "
+        "validation design is feasible. It does not fit the nested PLSR models."
     )
-    == preflight_signature
-    and "soil_mir_preflight_table"
-    in st.session_state
-)
-
-active_job = st.session_state.get(
-    "soil_mir_active_validation_job"
-)
-run_is_active = active_job is not None
-
-if st.button(
-    (
-        "Re-run preflight check"
-        if preflight_exists
-        else "Run preflight check"
-    ),
-    type="secondary",
-    disabled=run_is_active,
-):
-    datasets = {}
-    preflight_frames = []
-    try:
-        with st.status(
-            "Running preflight",
-            expanded=True,
-        ) as preflight_status:
-            for property_sheet in properties:
-                st.write(
-                    f"Reading and validating {property_sheet}..."
-                )
-                property_range = (
-                    reference_ranges.get(
-                        property_sheet,
-                        {},
-                    )
-                )
-                dataset = load_calibration_dataset(
-                    st.session_state[
-                        "soil_mir_spectra_dir"
-                    ],
-                    st.session_state[
-                        "soil_mir_reference_excel"
-                    ],
-                    property_sheet,
-                    wn_min=settings["wn_min"],
-                    wn_max=settings["wn_max"],
-                    fallback_exclude_co2=bool(
-                        st.session_state.get(
-                            "soil_mir_exclude_co2",
-                            False,
-                        )
-                    ),
-                    cache_root=cache_root,
-                    **({"opus_axis_mode": opus_axis_mode} if opus_axis_mode != OPUS_NATIVE else {}),
-                    **({"qc_manifest": qc_manifest} if qc_manifest else {}),
-                    ref_min=property_range.get(
-                        "min"
-                    ),
-                    ref_max=property_range.get(
-                        "max"
-                    ),
-                )
-                datasets[property_sheet] = dataset
-                st.write(
-                    f"{property_sheet}: "
-                    f"{dataset.rows:,} spectra, "
-                    f"{dataset.unique_samples:,} samples, "
-                    f"{len(dataset.wavenumbers):,} retained spectral points; "
-                    f"cache {dataset.cache_hits} reused / "
-                    f"{dataset.cache_misses} parsed."
-                )
-                if (
-                    dataset.endpoint_trimmed_points
-                ):
-                    st.write(
-                        "Shared-grid alignment trimmed "
-                        f"{dataset.endpoint_trimmed_points} "
-                        "endpoint point(s) from the modal OPUS grid; "
-                        "no extrapolation was used."
-                    )
-                if (
-                    dataset.excluded_reference_rows
-                ):
-                    st.write(
-                        "Reference filter excluded "
-                        f"{dataset.excluded_reference_rows:,} rows from "
-                        f"{dataset.excluded_reference_samples:,} samples."
-                    )
-
-                if dataset.qc_manifest_id:
-                    st.write(f"QC excluded {dataset.excluded_qc_rows} reference rows.")
-
-                preflight_frames.append(
-                    preflight_validation_methods(
-                        dataset,
-                        methods=methods,
-                        **settings,
-                    )
-                )
-
-            preflight = pd.concat(
-                preflight_frames,
-                ignore_index=True,
-            )
-            failures = preflight[
-                preflight["Status"]
-                != "Pass"
-            ]
-            passed = failures.empty
-
-            st.session_state[
-                "soil_mir_preflight_table"
-            ] = preflight
-            st.session_state[
-                "soil_mir_preflight_datasets"
-            ] = datasets
-            st.session_state[
-                "soil_mir_preflight_passed"
-            ] = passed
-            st.session_state[
-                "soil_mir_preflight_signature"
-            ] = preflight_signature
-
-            preflight_status.update(
-                label=(
-                    "Preflight passed"
-                    if passed
-                    else "Preflight failed"
-                ),
-                state=(
-                    "complete"
-                    if passed
-                    else "error"
-                ),
-                expanded=not passed,
-            )
-    except Exception as exc:
-        for key in (
-            "soil_mir_preflight_table",
-            "soil_mir_preflight_datasets",
-            "soil_mir_preflight_passed",
-            "soil_mir_preflight_signature",
-        ):
-            st.session_state.pop(
-                key,
-                None,
-            )
-        st.error(
-            "Preflight could not be completed."
-        )
-        st.exception(exc)
-
-preflight_exists = (
-    st.session_state.get(
-        "soil_mir_preflight_signature"
-    )
-    == preflight_signature
-    and "soil_mir_preflight_table"
-    in st.session_state
-)
-preflight_passed = bool(
-    st.session_state.get(
-        "soil_mir_preflight_passed",
-        False,
-    )
-)
-
-if preflight_exists:
-    preflight_display = st.session_state[
-        "soil_mir_preflight_table"
-    ].copy()
-    if "Method" in preflight_display.columns:
-        preflight_display["Method"] = (
-            preflight_display[
-                "Method"
-            ].map(
-                validation_method_label
-            )
-        )
-    st.dataframe(
-        preflight_display,
-        use_container_width=True,
-        hide_index=True,
-    )
-    if preflight_passed:
-        st.success(
-            "Preflight passed. Review the table above, then start validation."
-        )
-    else:
-        st.error(
-            "Preflight failed. Validation is blocked until every selected "
-            "property/method combination passes."
-        )
-else:
-    st.info(
-        "Run the preflight check before starting validation."
-    )
-
-st.subheader("2. Validation")
-st.caption(
-    "Start validation only after preflight passes. Progress reports the "
-    "current property, validation method, outer split, and final all-data refit."
-)
-
-start_validation = st.button(
-    "Start validation",
-    type="primary",
-    disabled=(
-        not (
-            preflight_exists
-            and preflight_passed
-        )
-        or run_is_active
-    ),
-)
-
-if start_validation:
-    datasets = st.session_state.get(
-        "soil_mir_preflight_datasets",
-        {},
-    )
-    if set(datasets) != set(properties):
-        st.error(
-            "Preflight data are no longer available. Re-run preflight."
-        )
-        st.stop()
-
-    job = start_validation_job(
-        datasets=datasets,
-        properties=properties,
-        methods=methods,
-        settings=dict(settings),
-        spectra_dir=st.session_state[
-            "soil_mir_spectra_dir"
-        ],
-        reference_excel=st.session_state[
-            "soil_mir_reference_excel"
-        ],
-        output_dir=st.session_state[
-            "soil_mir_output_dir"
-        ],
-        reference_ranges=dict(
-            reference_ranges
-        ),
-        fallback_exclude_co2=bool(
-            st.session_state.get(
-                "soil_mir_exclude_co2",
-                False,
-            )
-        ),
-        **({"qc_manifest": qc_manifest} if qc_manifest else {}),
-        resume_run_dir=(
-            resume_run_dir_text
-            or None
-        ),
-    )
-    st.session_state[
-        "soil_mir_active_validation_job"
-    ] = job
-    st.session_state[
-        "soil_mir_background_progress"
-    ] = 0.0
-    st.session_state[
-        "soil_mir_background_message"
-    ] = "Validation queued."
-    st.session_state[
-        "soil_mir_background_log"
-    ] = []
-    st.session_state.pop(
-        "soil_mir_last_run_outcome",
-        None,
-    )
-    st.rerun()
-
-
-@st.fragment(run_every=1.0)
-def render_active_validation():
-    job = st.session_state.get(
-        "soil_mir_active_validation_job"
-    )
-    if job is None:
-        return
-
-    events = job.drain_events()
-    if events:
-        log = st.session_state.setdefault(
-            "soil_mir_background_log",
-            [],
-        )
-        for event in events:
-            st.session_state[
-                "soil_mir_background_progress"
-            ] = event.get(
-                "progress",
-                0.0,
-            )
-            st.session_state[
-                "soil_mir_background_message"
-            ] = event.get(
-                "message",
-                "",
-            )
-            log.append(
-                event.get(
-                    "message",
-                    "",
-                )
-            )
-        if len(log) > 20:
-            del log[:-20]
-
-    st.markdown("### Active validation")
-    st.progress(
-        float(
-            st.session_state.get(
-                "soil_mir_background_progress",
-                0.0,
-            )
-        )
-    )
-    st.write(
+    preflight_exists = (
         st.session_state.get(
-            "soil_mir_background_message",
-            "Running...",
+            "soil_mir_preflight_signature"
+        )
+        == preflight_signature
+        and "soil_mir_preflight_table"
+        in st.session_state
+    )
+    if st.button(
+        (
+            "Re-run preflight check"
+            if preflight_exists
+            else "Run preflight check"
+        ),
+        type="secondary",
+        disabled=run_is_active,
+    ):
+        datasets = {}
+        preflight_frames = []
+        try:
+            with st.status(
+                "Running preflight",
+                expanded=True,
+            ) as preflight_status:
+                for property_sheet in properties:
+                    st.write(
+                        f"Reading and validating {property_sheet}..."
+                    )
+                    property_range = (
+                        reference_ranges.get(
+                            property_sheet,
+                            {},
+                        )
+                    )
+                    dataset = load_calibration_dataset(
+                        st.session_state[
+                            "soil_mir_spectra_dir"
+                        ],
+                        st.session_state[
+                            "soil_mir_reference_excel"
+                        ],
+                        property_sheet,
+                        wn_min=settings["wn_min"],
+                        wn_max=settings["wn_max"],
+                        fallback_exclude_co2=bool(
+                            st.session_state.get(
+                                "soil_mir_exclude_co2",
+                                False,
+                            )
+                        ),
+                        cache_root=cache_root,
+                        **({"opus_axis_mode": opus_axis_mode} if opus_axis_mode != OPUS_NATIVE else {}),
+                        **({"qc_manifest": qc_manifest} if qc_manifest else {}),
+                        ref_min=property_range.get(
+                            "min"
+                        ),
+                        ref_max=property_range.get(
+                            "max"
+                        ),
+                    )
+                    datasets[property_sheet] = dataset
+                    st.write(
+                        f"{property_sheet}: "
+                        f"{dataset.rows:,} spectra, "
+                        f"{dataset.unique_samples:,} samples, "
+                        f"{len(dataset.wavenumbers):,} retained spectral points; "
+                        f"cache {dataset.cache_hits} reused / "
+                        f"{dataset.cache_misses} parsed."
+                    )
+                    if (
+                        dataset.endpoint_trimmed_points
+                    ):
+                        st.write(
+                            "Shared-grid alignment trimmed "
+                            f"{dataset.endpoint_trimmed_points} "
+                            "endpoint point(s) from the modal OPUS grid; "
+                            "no extrapolation was used."
+                        )
+                    if (
+                        dataset.excluded_reference_rows
+                    ):
+                        st.write(
+                            "Reference filter excluded "
+                            f"{dataset.excluded_reference_rows:,} rows from "
+                            f"{dataset.excluded_reference_samples:,} samples."
+                        )
+
+                    if dataset.qc_manifest_id:
+                        st.write(f"QC excluded {dataset.excluded_qc_rows} reference rows.")
+
+                    preflight_frames.append(
+                        preflight_validation_methods(
+                            dataset,
+                            methods=methods,
+                            **settings,
+                        )
+                    )
+
+                preflight = pd.concat(
+                    preflight_frames,
+                    ignore_index=True,
+                )
+                failures = preflight[
+                    preflight["Status"]
+                    != "Pass"
+                ]
+                passed = failures.empty
+
+                st.session_state[
+                    "soil_mir_preflight_table"
+                ] = preflight
+                st.session_state[
+                    "soil_mir_preflight_datasets"
+                ] = datasets
+                st.session_state[
+                    "soil_mir_preflight_passed"
+                ] = passed
+                st.session_state[
+                    "soil_mir_preflight_signature"
+                ] = preflight_signature
+
+                preflight_status.update(
+                    label=(
+                        "Preflight passed"
+                        if passed
+                        else "Preflight failed"
+                    ),
+                    state=(
+                        "complete"
+                        if passed
+                        else "error"
+                    ),
+                    expanded=not passed,
+                )
+        except Exception as exc:
+            for key in (
+                "soil_mir_preflight_table",
+                "soil_mir_preflight_datasets",
+                "soil_mir_preflight_passed",
+                "soil_mir_preflight_signature",
+            ):
+                st.session_state.pop(
+                    key,
+                    None,
+                )
+            st.error(
+                "Preflight could not be completed."
+            )
+            st.exception(exc)
+
+    preflight_exists = (
+        st.session_state.get(
+            "soil_mir_preflight_signature"
+        )
+        == preflight_signature
+        and "soil_mir_preflight_table"
+        in st.session_state
+    )
+    preflight_passed = bool(
+        st.session_state.get(
+            "soil_mir_preflight_passed",
+            False,
         )
     )
 
-    if job.cancel_requested:
-        st.warning(
-            "Cancellation requested. The current safe unit of work "
-            "will finish, then the run will stop and remain resumable."
-        )
-    else:
-        if st.button(
-            "Cancel validation",
-            key="cancel_active_validation",
-            type="secondary",
-        ):
-            job.request_cancel()
-            st.session_state[
-                "soil_mir_background_message"
-            ] = (
-                "Cancellation requested; waiting for a safe checkpoint."
+    if preflight_exists:
+        preflight_display = st.session_state[
+            "soil_mir_preflight_table"
+        ].copy()
+        if "Method" in preflight_display.columns:
+            preflight_display["Method"] = (
+                preflight_display[
+                    "Method"
+                ].map(
+                    validation_method_label
+                )
             )
+        st.dataframe(
+            preflight_display,
+            use_container_width=True,
+            hide_index=True,
+        )
+        if preflight_passed:
+            st.success(
+                "Preflight passed. Review the table above, then start validation."
+            )
+        else:
+            st.error(
+                "Preflight failed. Validation is blocked until every selected "
+                "property/method combination passes."
+            )
+    else:
+        st.info(
+            "Run the preflight check before starting validation."
+        )
+
+
+    if preflight_exists and preflight_passed:
+        if st.button("Continue to Execution"):
+            request_section("run", "Execution")
             st.rerun()
 
-    with st.expander(
-        "Recent run messages",
-        expanded=False,
-    ):
-        for message in st.session_state.get(
-            "soil_mir_background_log",
-            [],
-        ):
-            st.write(message)
+elif section == "Execution":
+    preflight_exists = (
+        st.session_state.get(
+            "soil_mir_preflight_signature"
+        )
+        == preflight_signature
+        and "soil_mir_preflight_table"
+        in st.session_state
+    )
+    preflight_passed = bool(
+        st.session_state.get(
+            "soil_mir_preflight_passed",
+            False,
+        )
+    )
+    st.subheader("2. Validation")
+    st.caption(
+        "Start validation only after preflight passes. Progress reports the "
+        "current property, validation method, outer split, and final all-data refit."
+    )
 
-    if not job.future.done():
-        return
+    start_validation = st.button(
+        "Start validation",
+        type="primary",
+        disabled=(
+            not (
+                preflight_exists
+                and preflight_passed
+            )
+            or run_is_active
+        ),
+    )
 
-    try:
-        outcome = job.future.result()
-    except Exception as exc:
-        st.session_state[
-            "soil_mir_last_run_outcome"
-        ] = {
-            "status": "failed",
-            "message": str(exc),
-            "run_dir": "",
-            "pending": [],
-        }
-    else:
-        results = outcome.get(
-            "results",
+    if start_validation:
+        datasets = st.session_state.get(
+            "soil_mir_preflight_datasets",
             {},
         )
-        if results:
-            st.session_state[
-                "soil_mir_results"
-            ] = results
-        run_dir = outcome.get(
-            "run_dir",
-            "",
-        )
-        comparison = outcome.get(
-            "comparison_path",
-            "",
-        )
-        if run_dir:
-            st.session_state[
-                "soil_mir_last_run_dir"
-            ] = run_dir
-        st.session_state[
-            "soil_mir_last_comparison"
-        ] = comparison
+        if set(datasets) != set(properties):
+            st.error(
+                "Preflight data are no longer available. Re-run preflight."
+            )
+            st.stop()
 
-        pending = outcome.get(
-            "pending",
-            [],
-        )
-        status = outcome.get(
-            "status",
-            "",
-        )
-        if (
-            run_dir
-            and (
-                pending
-                or status
-                in (
-                    "cancelled",
-                    "completed_with_errors",
+        job = start_validation_job(
+            datasets=datasets,
+            properties=properties,
+            methods=methods,
+            settings=dict(settings),
+            spectra_dir=st.session_state[
+                "soil_mir_spectra_dir"
+            ],
+            reference_excel=st.session_state[
+                "soil_mir_reference_excel"
+            ],
+            output_dir=st.session_state[
+                "soil_mir_output_dir"
+            ],
+            reference_ranges=dict(
+                reference_ranges
+            ),
+            fallback_exclude_co2=bool(
+                st.session_state.get(
+                    "soil_mir_exclude_co2",
+                    False,
                 )
-            )
-        ):
-            st.session_state[
-                "soil_mir_resume_run_dir"
-            ] = run_dir
-        elif status == "completed":
-            st.session_state.pop(
-                "soil_mir_resume_run_dir",
-                None,
-            )
-
+            ),
+            **({"qc_manifest": qc_manifest} if qc_manifest else {}),
+            resume_run_dir=(
+                resume_run_dir_text
+                or None
+            ),
+        )
         st.session_state[
-            "soil_mir_last_run_outcome"
-        ] = {
-            "status": status,
-            "message": outcome.get(
-                "message",
-                "",
-            ),
-            "run_dir": run_dir,
-            "pending": list(
-                pending
-            ),
-        }
-
-    st.session_state.pop(
-        "soil_mir_active_validation_job",
-        None,
-    )
-    st.session_state.pop(
-        "soil_mir_background_progress",
-        None,
-    )
-    st.session_state.pop(
-        "soil_mir_background_message",
-        None,
-    )
-    st.rerun()
-
-
-render_active_validation()
-
-last_outcome = st.session_state.get(
-    "soil_mir_last_run_outcome"
-)
-if last_outcome:
-    status = last_outcome.get(
-        "status",
-        "",
-    )
-    message = last_outcome.get(
-        "message",
-        "",
-    )
-    run_dir = last_outcome.get(
-        "run_dir",
-        "",
-    )
-    pending = last_outcome.get(
-        "pending",
-        [],
-    )
-
-    if status == "completed":
-        st.success(
-            (
-                f"{message} Saved to {run_dir}."
-                if run_dir
-                else message
-            )
+            "soil_mir_active_validation_job"
+        ] = job
+        st.session_state[
+            "soil_mir_background_progress"
+        ] = 0.0
+        st.session_state[
+            "soil_mir_background_message"
+        ] = "Validation queued."
+        st.session_state[
+            "soil_mir_background_log"
+        ] = []
+        st.session_state.pop(
+            "soil_mir_last_run_outcome",
+            None,
         )
-    elif status == "cancelled":
-        st.warning(
-            "Validation cancelled safely. "
-            f"{len(pending)} analysis combination(s) remain pending. "
-            "Resume this run from Run History."
-        )
-        if run_dir:
-            st.write(
-                f"Saved run: {run_dir}"
-            )
-    elif status == "completed_with_errors":
-        st.warning(
-            (
-                f"{message} "
-                "Successful results were preserved and the run can be resumed."
-            )
-        )
-    elif status == "failed":
-        st.error(
-            f"Validation failed: {message}"
-        )
+        request_section("run", "Execution")
+        st.rerun()
+
+    if not preflight_exists or not preflight_passed:
+        st.warning("Current preflight has not passed. Return to Preflight.")
+        if st.button("Open Preflight"):
+            request_section("run", "Preflight")
+            st.rerun()
