@@ -40,3 +40,6 @@ implementation is not asserted to reproduce OPUS Quick Compare.
 
 - Default UI: Routine QC / USDA-style reference acceptance; all-pairwise remains selectable.
 - Conservative and best-pair screening, sample-level rescan lists, explicit policy metadata.
+
+- Predict: automatic compatibility checks and endpoint tolerance (default 10 cm^-1 guardrail),
+  explicit approval beyond 0.25 cm^-1, manual mode, per-file coverage and grid audit exports.

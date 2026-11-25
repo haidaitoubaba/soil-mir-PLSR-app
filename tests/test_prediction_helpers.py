@@ -447,7 +447,7 @@ def test_predict_opus_directory_uses_reference_file_names_for_loading(
 
     def fake_load(
         _directory, *, filenames=None, cache_root=None,
-        opus_axis_mode=OPUS_NATIVE, crop_min_cm1=None, crop_max_cm1=None,
+        opus_axis_mode=OPUS_NATIVE, crop_min_cm1=None, crop_max_cm1=None, coverage=None,
     ):
         captured["filenames"] = filenames
         captured["axis_mode"] = opus_axis_mode
@@ -492,3 +492,64 @@ def test_predict_opus_directory_uses_reference_file_names_for_loading(
     )
     assert captured["axis_mode"] == OPUS_NATIVE
     assert captured["crop"] == (None, 3992.4996)
+
+
+def test_automatic_compatibility_sask_example():
+    model = np.linspace(3998., 600., 3400)
+    external = np.linspace(3992.4996, 600., 3400)
+    result = prediction.spectral_compatibility(model, external)
+    assert result["compatible"]
+    assert result["requires_confirmation"]
+    assert result["tolerance"] == 5.51
+    assert result["metadata"]["Required extrapolation (cm⁻¹)"] == pytest.approx(5.5004)
+    assert result["metadata"]["Extrapolated model points"] > 0
+    assert result["metadata"]["Model-grid interpolation needed"]
+
+
+@pytest.mark.parametrize("model,external,limit,expected", [
+    ([600., 3998.], [400., 4000.], 10., True),
+    ([600., 3998.], [600.1, 3997.9], 10., True),
+    ([600., 3998.], [601., 3995.], 10., True),
+    ([600., 3998.], [600., 3980.], 10., False),
+    ([600., 601.], [602., 603.], 10., False),
+])
+def test_automatic_compatibility_limits(model, external, limit, expected):
+    result = prediction.spectral_compatibility(model, external, automatic_limit=limit)
+    assert result["compatible"] is expected
+
+
+def test_compatibility_confirmation_and_manual_mode(monkeypatch):
+    model = [600., 3998.]
+    external = np.array([600., 3992.4996])
+    monkeypatch.setattr(prediction, "load_model_bundle", lambda path: _bundle(model))
+    monkeypatch.setattr(prediction, "load_external_opus_library", lambda *a, **k: (
+        {"a.0": np.array([1., 2.])}, external, SimpleNamespace()
+    ))
+    monkeypatch.setattr(prediction, "predict_external_dataset", lambda *a, **k: (
+        pd.DataFrame(), pd.DataFrame(), {}
+    ))
+    options = {"extrapolation_mode": "Automatic"}
+    report = prediction.predict_opus_directory(
+        "model", "spectra", inspect_only=True, **options
+    )["compatibility"]
+    with pytest.raises(prediction.PredictionCompatibilityError, match="confirm"):
+        prediction.predict_opus_directory("model", "spectra", **options)
+    result = prediction.predict_opus_directory(
+        "model", "spectra", confirmed_signature=report["signature"], **options
+    )
+    assert result["input_metadata"]["Maximum endpoint extrapolation (cm⁻¹)"] == 5.51
+    assert result["input_metadata"]["Endpoint extrapolation confirmed"] is True
+    with pytest.raises(prediction.PredictionCompatibilityError, match="exceeds limit"):
+        prediction.predict_opus_directory("model", "spectra", max_extrapolation_cm1=0.25)
+    manual = prediction.predict_opus_directory("model", "spectra", max_extrapolation_cm1=6.)
+    assert manual["input_metadata"]["Maximum endpoint extrapolation (cm⁻¹)"] == 6.
+
+
+def test_compatibility_identifies_limiting_files():
+    a = prediction._axis_summary([600., 3998.])
+    b = prediction._axis_summary([601., 3992.])
+    coverage = {"native": {"a.0": a, "b.0": b}, "effective": {"a.0": a, "b.0": b}}
+    report = prediction.spectral_compatibility([600., 3998.], [601., 3992.], coverage)
+    assert report["files"][0]["Limits common upper bound"] is False
+    assert report["files"][1]["Limits common upper bound"] is True
+    assert report["files"][1]["Limits common lower bound"] is True
