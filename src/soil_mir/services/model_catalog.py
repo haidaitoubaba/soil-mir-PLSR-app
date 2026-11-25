@@ -48,7 +48,8 @@ def list_model_catalog(output_root, manifests=None):
                     continue
                 property_name = str(record.get("property", ""))
                 method = str(record.get("method", ""))
-                tolerance = record.get("refit_tolerance_pct") if role == "final_only_refit" else None
+                tolerance = (record.get("refit_tolerance_pct")
+                             if role == "final_only_refit" else None)
                 source = record
                 if role == "final_only_refit":
                     matches = [item for item in results if item.get("property") == property_name
@@ -61,9 +62,12 @@ def list_model_catalog(output_root, manifests=None):
                     "id": identity, "path": str(path), "run_id": run_id,
                     "run_dir": str(run_dir), "root": str(root),
                     "run_name": alias, "run_label": run_display_label(run_id, alias),
+                    "run_status": manifest.get("status", ""), "run_created": manifest.get("created_at"),
                     "alias_error": alias_error, "property": property_name, "method": method,
                     "model_role": role, "variant": variant, "refit_tolerance_pct": tolerance,
-                    "source_validation_tolerance_pct": record.get("source_validation_tolerance_pct"),
+                    "source_validation_tolerance_pct": record.get(
+                        "source_validation_tolerance_pct"
+                    ),
                     "created_at": record.get("created_at", manifest.get("created_at", "")),
                     "final_model": record.get("final_model", {}),
                     "source_metrics": source.get("metrics", {}),
@@ -132,10 +136,19 @@ def preview_model(path, entry=None):
                                     entry.get("final_model", {}).get("preprocessing")),
         "Response transformation": bundle.get("response_transform"),
         "Transform parameter": bundle.get("response_transform_parameter"),
-        "Selected region": bundle.get("selected_region", entry.get("final_model", {}).get("region")),
+        "Selected region": bundle.get(
+            "selected_region", entry.get("final_model", {}).get("region")
+        ),
         "Wavenumber minimum (cm⁻¹)": float(axis.min()) if valid_axis else None,
         "Wavenumber maximum (cm⁻¹)": float(axis.max()) if valid_axis else None,
         "Spectral points": int(axis.size) if valid_axis else None,
+        "Grid spacing median (cm⁻¹)": (
+            float(np.median(np.abs(np.diff(axis)))) if valid_axis and axis.size > 1 else None
+        ),
+        "Axis direction": (
+            "Increasing" if np.all(np.diff(axis) > 0)
+            else "Decreasing" if np.all(np.diff(axis) < 0) else "Non-monotonic"
+        ) if valid_axis and axis.size > 1 else None,
         "Selected intervals": str(bundle["selected_regions_cm1"])
         if bundle.get("selected_regions_cm1") is not None else None,
         "CO₂ excluded": bundle.get("exclude_co2"),
@@ -145,6 +158,12 @@ def preview_model(path, entry=None):
         "RMSECV tolerance (%)": bundle.get("rmsecv_tolerance_pct"),
         "Refit tolerance (%)": bundle.get("refit_tolerance_pct", entry.get("refit_tolerance_pct")),
         "Source run ID": entry.get("run_id") or bundle.get("source_run_id"),
+        "Run name": entry.get("run_name"),
+        "Run created": entry.get("run_created"),
+        "Model created": entry.get("created_at"),
+        "Source validation tolerance (%)": bundle.get(
+            "source_validation_tolerance_pct", entry.get("source_validation_tolerance_pct")
+        ),
         "Reference workbook": entry.get("reference_excel"),
         "Calibration spectra": entry.get("spectra_dir"),
     }
