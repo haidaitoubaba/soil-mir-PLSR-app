@@ -6,7 +6,8 @@ import pandas as pd
 import streamlit as st
 
 from soil_mir.config import ColumnConfig
-from soil_mir.io.opus import inspect_opus_directory
+from soil_mir.io.opus import inspect_opus_directory, list_opus_files
+from soil_mir.ui_state import remember_widget, request_section, reset_remembered, section_navigation
 from soil_mir.io.reference import (
     discover_property_sheets,
     load_property_metadata,
@@ -34,268 +35,300 @@ st.caption(
     "Inspect local spectra and reference data before modelling."
 )
 
-preferences = load_path_preferences()
+def source_identity(spectra, reference, output):
+    """File inventory only; never parse OPUS during navigation."""
+    spectra = Path(spectra).expanduser().resolve()
+    reference = Path(reference).expanduser().resolve()
+    stat = reference.stat()
+    files = []
+    for path in list_opus_files(spectra):
+        info = path.stat()
+        files.append((path.name, info.st_size, info.st_mtime_ns))
+    return (str(spectra), str(reference), str(Path(output).expanduser().resolve()),
+            stat.st_size, stat.st_mtime_ns, tuple(files))
 
-initial_paths = {
-    "soil_mir_spectra_input": st.session_state.get(
-        "soil_mir_spectra_dir",
-        preferences.get("spectra_dir", ""),
-    ),
-    "soil_mir_reference_input": st.session_state.get(
-        "soil_mir_reference_excel",
-        preferences.get("reference_excel", ""),
-    ),
-    "soil_mir_output_input": st.session_state.get(
-        "soil_mir_output_dir",
-        preferences.get("output_dir", ""),
-    ),
-}
-for key, value in initial_paths.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
 
-detected_layout = detect_local_data_layout()
-if detected_layout is not None:
-    with st.expander(
-        "Detected local dataset (optional)",
-        expanded=False,
-    ):
-        st.write(
-            "A possible Soil MIR data layout was detected from "
-            f"**{detected_layout.source}**. "
-            "Nothing is selected automatically."
-        )
-        st.code(
-            "\n".join(
-                [
-                    f"Spectra: {detected_layout.spectra_dir}",
-                    f"Reference: {detected_layout.reference_excel}",
-                    f"Results: {detected_layout.output_dir}",
-                ]
-            )
-        )
-        if st.button(
-            "Use detected data layout",
-            key="use_detected_layout",
+section = section_navigation("data")
+if section == "Input Data":
+    preferences = load_path_preferences()
+
+    initial_paths = {
+        "soil_mir_spectra_input": st.session_state.get(
+            "soil_mir_spectra_dir",
+            preferences.get("spectra_dir", ""),
+        ),
+        "soil_mir_reference_input": st.session_state.get(
+            "soil_mir_reference_excel",
+            preferences.get("reference_excel", ""),
+        ),
+        "soil_mir_output_input": st.session_state.get(
+            "soil_mir_output_dir",
+            preferences.get("output_dir", ""),
+        ),
+    }
+    for key, value in initial_paths.items():
+        if f"rc6_value_{key}" not in st.session_state:
+            reset_remembered(key, value)
+
+    detected_layout = detect_local_data_layout()
+    if detected_layout is not None:
+        with st.expander(
+            "Detected local dataset (optional)",
+            expanded=False,
         ):
+            st.write(
+                "A possible Soil MIR data layout was detected from "
+                f"**{detected_layout.source}**. "
+                "Nothing is selected automatically."
+            )
+            st.code(
+                "\n".join(
+                    [
+                        f"Spectra: {detected_layout.spectra_dir}",
+                        f"Reference: {detected_layout.reference_excel}",
+                        f"Results: {detected_layout.output_dir}",
+                    ]
+                )
+            )
+            if st.button(
+                "Use detected data layout",
+                key="use_detected_layout",
+            ):
+                reset_remembered("soil_mir_spectra_input", str(detected_layout.spectra_dir))
+                reset_remembered("soil_mir_reference_input", str(detected_layout.reference_excel))
+                reset_remembered("soil_mir_output_input", str(detected_layout.output_dir))
+                st.rerun()
+
+    st.caption(
+        "Choose any local folders/files below. On macOS and Windows, the Browse "
+        "buttons open the native system picker; paths can also be typed or pasted."
+    )
+
+    spectra_path_col, spectra_choose_col = st.columns(
+        [5, 1]
+    )
+    with spectra_choose_col:
+        if st.button(
+            "Browse…",
+            key="browse_spectra",
+            use_container_width=True,
+        ):
+            try:
+                selected = choose_local_path(
+                    "directory",
+                    prompt="Choose OPUS spectra folder",
+                )
+            except Exception as exc:
+                st.error(str(exc))
+            else:
+                if selected is not None:
+                    reset_remembered("soil_mir_spectra_input", str(selected))
+    with spectra_path_col:
+        spectra_text = remember_widget(
+            st, "text_input", "OPUS spectra directory",
+            key="soil_mir_spectra_input",
+            placeholder="/path/to/data/spectra/Complete",
+        )
+
+    reference_path_col, reference_choose_col = st.columns(
+        [5, 1]
+    )
+    with reference_choose_col:
+        if st.button(
+            "Browse…",
+            key="browse_reference",
+            use_container_width=True,
+        ):
+            try:
+                selected = choose_local_path(
+                    "file",
+                    prompt="Choose reference Excel workbook",
+                )
+            except Exception as exc:
+                st.error(str(exc))
+            else:
+                if selected is not None:
+                    reset_remembered("soil_mir_reference_input", str(selected))
+    with reference_path_col:
+        reference_text = remember_widget(
+            st, "text_input", "Reference workbook",
+            key="soil_mir_reference_input",
+            placeholder="/path/to/reference_value.xlsx",
+        )
+
+    output_path_col, output_choose_col = st.columns(
+        [5, 1]
+    )
+    with output_choose_col:
+        if st.button(
+            "Browse…",
+            key="browse_output",
+            use_container_width=True,
+        ):
+            try:
+                selected = choose_local_path(
+                    "directory",
+                    prompt="Choose results folder",
+                )
+            except Exception as exc:
+                st.error(str(exc))
+            else:
+                if selected is not None:
+                    reset_remembered("soil_mir_output_input", str(selected))
+    with output_path_col:
+        output_text = remember_widget(
+            st, "text_input", "Results directory",
+            key="soil_mir_output_input",
+            placeholder="/path/to/soil_mir_results",
+        )
+
+    st.session_state.rc6_data_draft = (spectra_text, reference_text, output_text)
+    if st.button(
+        "Inspect data",
+        type="primary",
+        use_container_width=False,
+    ):
+        if (
+            not spectra_text
+            or not reference_text
+            or not output_text
+        ):
+            st.error(
+                "Select spectra, reference workbook, "
+                "and results directory."
+            )
+            st.stop()
+
+        spectra_path = Path(
+            spectra_text
+        ).expanduser()
+        reference_path = Path(
+            reference_text
+        ).expanduser()
+        output_path = Path(
+            output_text
+        ).expanduser()
+
+        try:
+            spectra = inspect_opus_directory(
+                spectra_path
+            )
+            properties = discover_property_sheets(
+                reference_path
+            )
+            metadata = load_property_metadata(
+                reference_path
+            )
+            output_path.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            identity = source_identity(spectra_path, reference_path, output_path)
+        except Exception as exc:
+            st.exception(exc)
+        else:
+            source_signature = (
+                str(spectra_path.resolve()),
+                str(reference_path.resolve()),
+            )
+            previous_signature = st.session_state.get(
+                "soil_mir_data_source_signature"
+            )
+            if (
+                previous_signature is not None
+                and previous_signature
+                != source_signature
+            ):
+                st.session_state["soil_mir_data_selected_properties"] = []
+                reset_remembered("data_properties", [])
+                st.session_state[
+                    "soil_mir_selected_properties"
+                ] = []
+                st.session_state.pop(
+                    "cfg_selected_properties",
+                    None,
+                )
+                st.session_state.pop(
+                    "soil_mir_reference_ranges",
+                    None,
+                )
+                for key in list(
+                    st.session_state.keys()
+                ):
+                    if (
+                        key.startswith("ref_min_")
+                        or key.startswith("ref_max_")
+                    ):
+                        st.session_state.pop(
+                            key,
+                            None,
+                        )
             st.session_state[
-                "soil_mir_spectra_input"
-            ] = str(detected_layout.spectra_dir)
+                "soil_mir_data_source_signature"
+            ] = source_signature
+
             st.session_state[
-                "soil_mir_reference_input"
-            ] = str(detected_layout.reference_excel)
+                "soil_mir_spectra_dir"
+            ] = str(spectra_path)
             st.session_state[
-                "soil_mir_output_input"
-            ] = str(detected_layout.output_dir)
+                "soil_mir_reference_excel"
+            ] = str(reference_path)
+            st.session_state[
+                "soil_mir_output_dir"
+            ] = str(output_path)
+            st.session_state[
+                "soil_mir_properties"
+            ] = properties
+            st.session_state[
+                "soil_mir_metadata"
+            ] = metadata
+            st.session_state[
+                "soil_mir_spectra_summary"
+            ] = {
+                "file_count": spectra.file_count,
+                "total_bytes": spectra.total_bytes,
+                "filenames": spectra.filenames,
+            }
+            try:
+                save_path_preferences(
+                    spectra_path,
+                    reference_path,
+                    output_path,
+                )
+            except OSError as exc:
+                st.warning(
+                    "Data inspection succeeded, but the last-used paths "
+                    f"could not be saved: {exc}"
+                )
+            st.session_state.rc6_data_inspected_identity = identity
+            st.session_state.rc6_data_applied_paths = (spectra_text, reference_text, output_text)
+            request_section("data", "Data Overview")
             st.rerun()
 
-st.caption(
-    "Choose any local folders/files below. On macOS and Windows, the Browse "
-    "buttons open the native system picker; paths can also be typed or pasted."
-)
+    applied = st.session_state.get("rc6_data_applied_paths")
+    if applied and st.session_state.rc6_data_draft != applied:
+        st.warning("Paths edited. Inspect data to apply them. Other pages still use applied paths.")
+    elif applied:
+        st.success("Paths inspected. Open Data Overview or Data Acceptance.")
+    st.stop()
 
-spectra_path_col, spectra_choose_col = st.columns(
-    [5, 1]
-)
-with spectra_choose_col:
-    if st.button(
-        "Browse…",
-        key="browse_spectra",
-        use_container_width=True,
-    ):
-        try:
-            selected = choose_local_path(
-                "directory",
-                prompt="Choose OPUS spectra folder",
-            )
-        except Exception as exc:
-            st.error(str(exc))
-        else:
-            if selected is not None:
-                st.session_state[
-                    "soil_mir_spectra_input"
-                ] = str(selected)
-with spectra_path_col:
-    spectra_text = st.text_input(
-        "OPUS spectra directory",
-        key="soil_mir_spectra_input",
-        placeholder="/path/to/data/spectra/Complete",
-    )
-
-reference_path_col, reference_choose_col = st.columns(
-    [5, 1]
-)
-with reference_choose_col:
-    if st.button(
-        "Browse…",
-        key="browse_reference",
-        use_container_width=True,
-    ):
-        try:
-            selected = choose_local_path(
-                "file",
-                prompt="Choose reference Excel workbook",
-            )
-        except Exception as exc:
-            st.error(str(exc))
-        else:
-            if selected is not None:
-                st.session_state[
-                    "soil_mir_reference_input"
-                ] = str(selected)
-with reference_path_col:
-    reference_text = st.text_input(
-        "Reference workbook",
-        key="soil_mir_reference_input",
-        placeholder="/path/to/reference_value.xlsx",
-    )
-
-output_path_col, output_choose_col = st.columns(
-    [5, 1]
-)
-with output_choose_col:
-    if st.button(
-        "Browse…",
-        key="browse_output",
-        use_container_width=True,
-    ):
-        try:
-            selected = choose_local_path(
-                "directory",
-                prompt="Choose results folder",
-            )
-        except Exception as exc:
-            st.error(str(exc))
-        else:
-            if selected is not None:
-                st.session_state[
-                    "soil_mir_output_input"
-                ] = str(selected)
-with output_path_col:
-    output_text = st.text_input(
-        "Results directory",
-        key="soil_mir_output_input",
-        placeholder="/path/to/soil_mir_results",
-    )
-
-if st.button(
-    "Inspect data",
-    type="primary",
-    use_container_width=False,
-):
-    if (
-        not spectra_text
-        or not reference_text
-        or not output_text
-    ):
-        st.error(
-            "Select spectra, reference workbook, "
-            "and results directory."
-        )
-        st.stop()
-
-    spectra_path = Path(
-        spectra_text
-    ).expanduser()
-    reference_path = Path(
-        reference_text
-    ).expanduser()
-    output_path = Path(
-        output_text
-    ).expanduser()
-
-    try:
-        spectra = inspect_opus_directory(
-            spectra_path
-        )
-        properties = discover_property_sheets(
-            reference_path
-        )
-        metadata = load_property_metadata(
-            reference_path
-        )
-        output_path.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-    except Exception as exc:
-        st.exception(exc)
-    else:
-        source_signature = (
-            str(spectra_path.resolve()),
-            str(reference_path.resolve()),
-        )
-        previous_signature = st.session_state.get(
-            "soil_mir_data_source_signature"
-        )
-        if (
-            previous_signature is not None
-            and previous_signature
-            != source_signature
-        ):
-            st.session_state[
-                "soil_mir_data_selected_properties"
-            ] = []
-            st.session_state[
-                "soil_mir_selected_properties"
-            ] = []
-            st.session_state.pop(
-                "cfg_selected_properties",
-                None,
-            )
-            st.session_state.pop(
-                "soil_mir_reference_ranges",
-                None,
-            )
-            for key in list(
-                st.session_state.keys()
-            ):
-                if (
-                    key.startswith("ref_min_")
-                    or key.startswith("ref_max_")
-                ):
-                    st.session_state.pop(
-                        key,
-                        None,
-                    )
-        st.session_state[
-            "soil_mir_data_source_signature"
-        ] = source_signature
-
-        st.session_state[
-            "soil_mir_spectra_dir"
-        ] = str(spectra_path)
-        st.session_state[
-            "soil_mir_reference_excel"
-        ] = str(reference_path)
-        st.session_state[
-            "soil_mir_output_dir"
-        ] = str(output_path)
-        st.session_state[
-            "soil_mir_properties"
-        ] = properties
-        st.session_state[
-            "soil_mir_metadata"
-        ] = metadata
-        st.session_state[
-            "soil_mir_spectra_summary"
-        ] = {
-            "file_count": spectra.file_count,
-            "total_bytes": spectra.total_bytes,
-            "filenames": spectra.filenames,
-        }
-        try:
-            save_path_preferences(
-                spectra_path,
-                reference_path,
-                output_path,
-            )
-        except OSError as exc:
-            st.warning(
-                "Data inspection succeeded, but the last-used paths "
-                f"could not be saved: {exc}"
-            )
-
+identity = st.session_state.get("rc6_data_inspected_identity")
+applied = st.session_state.get("rc6_data_applied_paths")
+if identity is None or applied is None:
+    st.info("Inspect data in Input Data first.")
+    st.stop()
+if st.session_state.get("rc6_data_draft") != applied:
+    st.warning("Edited paths are not applied. Return to Input Data and inspect data.")
+    st.stop()
+try:
+    current = source_identity(*applied)
+except (OSError, ValueError) as exc:
+    st.error(f"Inspect data again: {exc}")
+    st.stop()
+if current != identity:
+    st.warning("Data files changed. Inspect data again before using this overview or acceptance.")
+    st.stop()
+st.caption(f"Spectra: {applied[0]} | Reference: {applied[1]} | Results: {applied[2]}")
 properties = st.session_state.get(
     "soil_mir_properties",
     [],
@@ -336,10 +369,9 @@ if (
         )
         if name in properties
     ]
-    selected = st.multiselect(
-        "Properties to inspect",
-        properties,
-        default=remembered_selection,
+    selected = remember_widget(
+        st, "multiselect", "Properties to inspect", key="data_properties",
+        options=properties, default=remembered_selection,
         placeholder="Choose one or more properties",
         help=(
             "Properties are never selected automatically. "
@@ -350,164 +382,166 @@ if (
         "soil_mir_data_selected_properties"
     ] = selected
 
-    if selected:
-        columns = ColumnConfig()
-        metadata = st.session_state.get(
-            "soil_mir_metadata",
-            {},
-        )
-        available = set(
-            spectra_summary["filenames"]
-        )
-        reference_path = Path(
-            reference_path_text
-        )
-        rows = []
-        zero_reference_details = []
 
-        for sheet in selected:
-            summary = summarize_property(
-                reference_path,
-                sheet,
-                columns,
-                metadata,
+    if section == "Data Overview":
+        if selected:
+            columns = ColumnConfig()
+            metadata = st.session_state.get(
+                "soil_mir_metadata",
+                {},
             )
-            frame = read_property_sheet(
-                reference_path,
-                sheet,
-                columns,
+            available = set(
+                spectra_summary["filenames"]
             )
-            match = match_reference_files(
-                frame,
-                available,
-                columns,
+            reference_path = Path(
+                reference_path_text
             )
-            numeric_reference = pd.to_numeric(
-                frame[columns.reference_value],
-                errors="coerce",
-            )
-            zero_samples = sorted(
-                frame.loc[
-                    numeric_reference == 0,
-                    columns.sample_id,
-                ]
-                .dropna()
-                .astype(str)
-                .unique()
-            )
-            if zero_samples:
-                zero_reference_details.append(
-                    (
-                        sheet,
-                        zero_samples,
-                    )
+            rows = []
+            zero_reference_details = []
+
+            for sheet in selected:
+                summary = summarize_property(
+                    reference_path,
+                    sheet,
+                    columns,
+                    metadata,
                 )
-            rows.append(
-                {
-                    "Property": summary.sheet,
-                    "Rows": summary.rows,
-                    "Unique samples": (
-                        summary.unique_samples
-                    ),
-                    "Groups": (
-                        summary.groups
-                        if summary.group_column_present
-                        else "Not provided"
-                    ),
-                    "Missing groups": (
-                        summary.missing_group_values
-                        if summary.group_column_present
-                        else "—"
-                    ),
-                    "Missing refs": (
-                        summary.missing_reference_values
-                    ),
-                    "Zero refs": (
-                        summary.zero_reference_values
-                    ),
-                    "Zero ref samples": "; ".join(
-                        zero_samples
-                    ),
-                    "Negative refs": (
-                        summary.negative_reference_values
-                    ),
-                    "Duplicate rows": (
-                        summary.duplicate_rows
-                    ),
-                    "Reference min": (
-                        summary.reference_min
-                    ),
-                    "Reference max": (
-                        summary.reference_max
-                    ),
-                    "Units": summary.units,
-                    "Transform": summary.transform,
-                    "Matched spectra": (
-                        match["matched_files"]
-                    ),
-                    "Missing spectra": len(
-                        match["missing_files"]
-                    ),
-                    "Match rate": (
-                        match["match_rate"]
-                    ),
-                }
-            )
-
-        st.dataframe(
-            pd.DataFrame(rows),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        if zero_reference_details:
-            detail_text = "; ".join(
-                (
-                    f"{sheet}: "
-                    + ", ".join(samples)
+                frame = read_property_sheet(
+                    reference_path,
+                    sheet,
+                    columns,
                 )
-                for sheet, samples
-                in zero_reference_details
-            )
-            st.warning(
-                "Zero reference values detected and retained: "
-                f"{detail_text}. "
-                "They are not removed automatically. "
-                "Use the property-specific reference filter in "
-                "Configuration only if these zeros are known "
-                "placeholders or invalid measurements."
-            )
-
-        for sheet in selected:
-            frame = read_property_sheet(
-                reference_path,
-                sheet,
-                columns,
-            )
-            match = match_reference_files(
-                frame,
-                available,
-                columns,
-            )
-            if match["missing_files"]:
-                with st.expander(
-                    f"{sheet}: missing spectra "
-                    f"({len(match['missing_files'])})"
-                ):
-                    st.code(
-                        "\n".join(
-                            match[
-                                "missing_files"
-                            ][:200]
+                match = match_reference_files(
+                    frame,
+                    available,
+                    columns,
+                )
+                numeric_reference = pd.to_numeric(
+                    frame[columns.reference_value],
+                    errors="coerce",
+                )
+                zero_samples = sorted(
+                    frame.loc[
+                        numeric_reference == 0,
+                        columns.sample_id,
+                    ]
+                    .dropna()
+                    .astype(str)
+                    .unique()
+                )
+                if zero_samples:
+                    zero_reference_details.append(
+                        (
+                            sheet,
+                            zero_samples,
                         )
                     )
-            else:
-                st.success(
-                    f"{sheet}: every referenced "
-                    "spectrum was found."
+                rows.append(
+                    {
+                        "Property": summary.sheet,
+                        "Rows": summary.rows,
+                        "Unique samples": (
+                            summary.unique_samples
+                        ),
+                        "Groups": (
+                            summary.groups
+                            if summary.group_column_present
+                            else "Not provided"
+                        ),
+                        "Missing groups": (
+                            summary.missing_group_values
+                            if summary.group_column_present
+                            else "—"
+                        ),
+                        "Missing refs": (
+                            summary.missing_reference_values
+                        ),
+                        "Zero refs": (
+                            summary.zero_reference_values
+                        ),
+                        "Zero ref samples": "; ".join(
+                            zero_samples
+                        ),
+                        "Negative refs": (
+                            summary.negative_reference_values
+                        ),
+                        "Duplicate rows": (
+                            summary.duplicate_rows
+                        ),
+                        "Reference min": (
+                            summary.reference_min
+                        ),
+                        "Reference max": (
+                            summary.reference_max
+                        ),
+                        "Units": summary.units,
+                        "Transform": summary.transform,
+                        "Matched spectra": (
+                            match["matched_files"]
+                        ),
+                        "Missing spectra": len(
+                            match["missing_files"]
+                        ),
+                        "Match rate": (
+                            match["match_rate"]
+                        ),
+                    }
                 )
 
+            st.dataframe(
+                pd.DataFrame(rows),
+                use_container_width=True,
+                hide_index=True,
+            )
 
+            if zero_reference_details:
+                detail_text = "; ".join(
+                    (
+                        f"{sheet}: "
+                        + ", ".join(samples)
+                    )
+                    for sheet, samples
+                    in zero_reference_details
+                )
+                st.warning(
+                    "Zero reference values detected and retained: "
+                    f"{detail_text}. "
+                    "They are not removed automatically. "
+                    "Use the property-specific reference filter in "
+                    "Configuration only if these zeros are known "
+                    "placeholders or invalid measurements."
+                )
+
+            for sheet in selected:
+                frame = read_property_sheet(
+                    reference_path,
+                    sheet,
+                    columns,
+                )
+                match = match_reference_files(
+                    frame,
+                    available,
+                    columns,
+                )
+                if match["missing_files"]:
+                    with st.expander(
+                        f"{sheet}: missing spectra "
+                        f"({len(match['missing_files'])})"
+                    ):
+                        st.code(
+                            "\n".join(
+                                match[
+                                    "missing_files"
+                                ][:200]
+                            )
+                        )
+                else:
+                    st.success(
+                        f"{sheet}: every referenced "
+                        "spectrum was found."
+                    )
+
+    elif section == "Data Acceptance" and selected:
         st.subheader("Full local data acceptance")
         st.caption(
             "This check actually parses every referenced OPUS file "
@@ -516,6 +550,7 @@ if (
             "The first run builds the local OPUS cache; later properties "
             "and runs reuse unchanged spectra."
         )
+        acceptance_key = (identity, tuple(selected))
         if st.button(
             "Run full data acceptance check",
             type="secondary",
@@ -543,36 +578,45 @@ if (
                         expanded=False,
                     )
             except Exception as exc:
+                st.session_state.pop("rc6_data_acceptance", None)
                 st.error(
                     "Full local data acceptance failed."
                 )
                 st.exception(exc)
             else:
-                st.success(
-                    "All selected reference rows and OPUS files "
-                    "passed the full local data check."
+                st.session_state.rc6_data_acceptance = (acceptance_key, acceptance)
+        saved = st.session_state.get("rc6_data_acceptance")
+        if saved and saved[0] == acceptance_key:
+            acceptance = saved[1]
+            st.success(
+                "All selected reference rows and OPUS files "
+                "passed the full local data check."
+            )
+            st.dataframe(
+                acceptance["properties"],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(
+                "Raw coverage shows the full range present across the "
+                "loaded OPUS axes. Shared coverage is the no-extrapolation "
+                "intersection used for alignment. Final coverage is the "
+                "configured modelling range after optional CO₂ exclusion."
+            )
+            if not acceptance["alignment"].empty:
+                st.subheader(
+                    "Cross-property file alignment"
                 )
                 st.dataframe(
-                    acceptance["properties"],
+                    acceptance["alignment"],
                     use_container_width=True,
                     hide_index=True,
                 )
-                st.caption(
-                    "Raw coverage shows the full range present across the "
-                    "loaded OPUS axes. Shared coverage is the no-extrapolation "
-                    "intersection used for alignment. Final coverage is the "
-                    "configured modelling range after optional CO₂ exclusion."
-                )
-                if not acceptance["alignment"].empty:
-                    st.subheader(
-                        "Cross-property file alignment"
-                    )
-                    st.dataframe(
-                        acceptance["alignment"],
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-                st.write(
-                    "Acceptance report: "
-                    f"{acceptance['report_path']}"
-                )
+            st.write(
+                "Acceptance report: "
+                f"{acceptance['report_path']}"
+            )
+        elif saved:
+            st.info("Previous acceptance is historical; run the check for the current selection.")
+    elif section == "Data Acceptance":
+        st.info("Choose one or more properties for data acceptance.")

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 
 import streamlit as st
+
+from soil_mir.ui_state import section_navigation
 
 from soil_mir.config import (
     SpectralConfig,
@@ -37,6 +40,8 @@ st.caption(
     "Choose modelling and validation settings. "
     "Property metadata remains property-specific."
 )
+
+section = section_navigation("configuration")
 
 available_properties = st.session_state.get(
     "soil_mir_properties",
@@ -189,7 +194,31 @@ output_dir = st.session_state.get(
     "soil_mir_output_dir",
     "",
 )
-if output_dir:
+# Existing cfg_* and ref_* keys remain durable drafts, not widget keys.
+# Saved profiles and history can still populate them via the existing service.
+def cfg_widget(container, kind, label, *args, key, **kwargs):
+    widget_key = f"_rc6_cfg_{key}"
+    state = st.session_state
+    if widget_key not in state or state[widget_key] != state[key]:
+        state[widget_key] = deepcopy(state[key])
+
+    def store():
+        state[key] = deepcopy(state[widget_key])
+
+    result = getattr(container, kind)(label, *args, key=widget_key, on_change=store, **kwargs)
+    state[key] = deepcopy(result)
+    return result
+
+
+def draft(config_key):
+    return st.session_state[PROFILE_WIDGET_KEYS[config_key]]
+
+
+st.session_state["cfg_selected_properties"] = [
+    prop for prop in draft("soil_mir_selected_properties") if prop in available_properties
+]
+
+if section == "Profiles" and output_dir:
     with st.expander("Saved configuration profiles"):
         profiles = list_profiles(output_dir)
         if profiles:
@@ -255,6 +284,7 @@ if output_dir:
                             "soil_mir_profile_delete_pending",
                             None,
                         )
+                        st.session_state.rc6_configuration_dirty = False
                         st.rerun()
 
             with delete_col:
@@ -328,26 +358,23 @@ if output_dir:
                 "then save the configuration as a profile."
             )
 
-selected_properties = st.multiselect(
-    "Properties",
-    available_properties,
-    key=PROFILE_WIDGET_KEYS[
-        "soil_mir_selected_properties"
-    ],
-    placeholder="Choose one or more properties",
-    help=(
-        "No property is selected automatically. "
-        "Choose explicitly or load a saved profile."
-    ),
-)
+elif section == "General":
+    selected_properties = cfg_widget(st, "multiselect",
+        "Properties",
+        available_properties,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_selected_properties"
+        ],
+        placeholder="Choose one or more properties",
+        help=(
+            "No property is selected automatically. "
+            "Choose explicitly or load a saved profile."
+        ),
+    )
 
-st.subheader("Basic settings")
-left, right = st.columns(2)
-
-with left:
     st.markdown("**Training spectral range (cm⁻¹)**")
     lower_col, upper_col = st.columns(2)
-    lower = lower_col.number_input(
+    lower = cfg_widget(lower_col, "number_input",
         "Minimum (cm⁻¹)",
         min_value=400.0,
         max_value=4000.0,
@@ -355,7 +382,7 @@ with left:
         format="%.4f",
         key="cfg_wn_min",
     )
-    upper = upper_col.number_input(
+    upper = cfg_widget(upper_col, "number_input",
         "Maximum (cm⁻¹)",
         min_value=400.0,
         max_value=4000.0,
@@ -365,7 +392,7 @@ with left:
     )
     wn_range = (lower, upper)
     st.caption("Only measured points within these bounds enter calibration.")
-    exclude_co2 = st.checkbox(
+    exclude_co2 = cfg_widget(st, "checkbox",
         "Exclude CO₂ region (2300–2400 cm⁻¹)",
         key=PROFILE_WIDGET_KEYS[
             "soil_mir_exclude_co2"
@@ -375,18 +402,9 @@ with left:
             "a property-specific setting is available."
         ),
     )
-    max_rank = st.number_input(
-        "Maximum PLS rank",
-        min_value=1,
-        max_value=50,
-        step=1,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_max_rank"
-        ],
-    )
 
-with right:
-    validation_methods = st.multiselect(
+elif section == "Validation":
+    validation_methods = cfg_widget(st, "multiselect",
         "Validation methods",
         list(
             VALIDATION_METHOD_LABELS
@@ -409,7 +427,161 @@ with right:
                 f"**{validation_method_label(method)}** — "
                 f"{validation_method_description(method)}"
             )
-    region_windows = st.number_input(
+    st.subheader("Validation settings")
+    use_group_stratification = cfg_widget(st, "checkbox",
+        "Use Group for stratification when available",
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_use_group_stratification"
+        ],
+        help=(
+            "When enabled, K-fold and Monte Carlo use complete Group metadata "
+            "for stratification when feasible. When disabled, they ignore Group "
+            "and split at the sample level. LOSO and Kennard–Stone are unaffected; "
+            "LOGO always requires and uses Group."
+        ),
+    )
+    validation_left, validation_right = st.columns(2)
+
+    with validation_left:
+        internal_cv_folds = cfg_widget(st, "number_input",
+            "Internal CV folds",
+            min_value=2,
+            max_value=20,
+            step=1,
+            key=PROFILE_WIDGET_KEYS[
+                "soil_mir_internal_cv_folds"
+            ],
+        )
+        outer_cv_folds = cfg_widget(st, "number_input",
+            "Outer K-fold folds",
+            min_value=2,
+            max_value=20,
+            step=1,
+            key=PROFILE_WIDGET_KEYS[
+                "soil_mir_outer_cv_folds"
+            ],
+            disabled=(
+                "kfold"
+                not in validation_methods
+            ),
+        )
+        n_repeats = cfg_widget(st, "number_input",
+            "Monte Carlo repeats",
+            min_value=1,
+            max_value=500,
+            step=1,
+            key=PROFILE_WIDGET_KEYS[
+                "soil_mir_n_repeats"
+            ],
+            disabled=(
+                "monte_carlo"
+                not in validation_methods
+            ),
+        )
+
+    with validation_right:
+        validation_fraction = cfg_widget(st, "number_input",
+            "Holdout fraction",
+            min_value=0.05,
+            max_value=0.95,
+            step=0.05,
+            key=PROFILE_WIDGET_KEYS[
+                "soil_mir_validation_fraction"
+            ],
+            disabled=(
+                not any(
+                    method in validation_methods
+                    for method in (
+                        "monte_carlo",
+                        "kennard_stone",
+                    )
+                )
+            ),
+        )
+        ks_representation = cfg_widget(st, "selectbox",
+            "Kennard–Stone representation",
+            [
+                "raw",
+                "derivative_snv",
+                "pca",
+            ],
+            key=PROFILE_WIDGET_KEYS[
+                "soil_mir_ks_representation"
+            ],
+            disabled=(
+                "kennard_stone"
+                not in validation_methods
+            ),
+        )
+        ks_pca_variance = cfg_widget(st, "number_input",
+            "KS PCA retained variance",
+            min_value=0.50,
+            max_value=0.999,
+            step=0.01,
+            key=PROFILE_WIDGET_KEYS[
+                "soil_mir_ks_pca_variance"
+            ],
+            disabled=(
+                "kennard_stone"
+                not in validation_methods
+                or ks_representation != "pca"
+            ),
+        )
+
+    random_seed = cfg_widget(st, "number_input",
+        "Random seed",
+        min_value=0,
+        step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_random_seed"
+        ],
+    )
+
+elif section == "Preprocessing":
+    st.subheader("PLSR preprocessing candidates")
+    preprocessing_methods = cfg_widget(st, "multiselect",
+        "Preprocessing methods to compare",
+        list(PREPROCESSING_NAMES),
+        key=PROFILE_WIDGET_KEYS["soil_mir_preprocessing_methods"],
+        help=(
+            "Nested model selection compares every selected method. "
+            "All 11 methods are available; the original four are selected by default "
+            "to preserve earlier workloads. More methods increase run time."
+        ),
+    )
+    st.caption(
+        f"{len(preprocessing_methods)} of {len(PREPROCESSING_NAMES)} candidates selected. "
+        "SG smoothing and derivatives operate separately within each spectral interval."
+    )
+
+    sg_window = cfg_widget(st, "number_input",
+        "Savitzky–Golay window",
+        min_value=3,
+        step=2,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_sg_window"
+        ],
+    )
+    sg_polyorder = cfg_widget(st, "number_input",
+        "Savitzky–Golay polynomial order",
+        min_value=0,
+        step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_sg_polyorder"
+        ],
+    )
+
+elif section == "Advanced":
+    max_rank = cfg_widget(st, "number_input",
+        "Maximum PLS rank",
+        min_value=1,
+        max_value=50,
+        step=1,
+        key=PROFILE_WIDGET_KEYS[
+            "soil_mir_max_rank"
+        ],
+    )
+    region_windows = cfg_widget(st, "number_input",
         "Region search windows",
         min_value=1,
         max_value=16,
@@ -422,7 +594,7 @@ with right:
             "the number of windows increases."
         ),
     )
-    tolerance = st.number_input(
+    tolerance = cfg_widget(st, "number_input",
         "RMSECV tolerance (%)",
         min_value=0.0,
         step=0.5,
@@ -430,229 +602,104 @@ with right:
             "soil_mir_tolerance"
         ],
     )
-
-st.subheader("Validation settings")
-use_group_stratification = st.checkbox(
-    "Use Group for stratification when available",
-    key=PROFILE_WIDGET_KEYS[
-        "soil_mir_use_group_stratification"
-    ],
-    help=(
-        "When enabled, K-fold and Monte Carlo use complete Group metadata "
-        "for stratification when feasible. When disabled, they ignore Group "
-        "and split at the sample level. LOSO and Kennard–Stone are unaffected; "
-        "LOGO always requires and uses Group."
-    ),
-)
-validation_left, validation_right = st.columns(2)
-
-with validation_left:
-    internal_cv_folds = st.number_input(
-        "Internal CV folds",
-        min_value=2,
-        max_value=20,
-        step=1,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_internal_cv_folds"
-        ],
-    )
-    outer_cv_folds = st.number_input(
-        "Outer K-fold folds",
-        min_value=2,
-        max_value=20,
-        step=1,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_outer_cv_folds"
-        ],
-        disabled=(
-            "kfold"
-            not in validation_methods
-        ),
-    )
-    n_repeats = st.number_input(
-        "Monte Carlo repeats",
-        min_value=1,
-        max_value=500,
-        step=1,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_n_repeats"
-        ],
-        disabled=(
-            "monte_carlo"
-            not in validation_methods
-        ),
-    )
-
-with validation_right:
-    validation_fraction = st.number_input(
-        "Holdout fraction",
-        min_value=0.05,
-        max_value=0.95,
-        step=0.05,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_validation_fraction"
-        ],
-        disabled=(
-            not any(
-                method in validation_methods
-                for method in (
-                    "monte_carlo",
-                    "kennard_stone",
-                )
-            )
-        ),
-    )
-    ks_representation = st.selectbox(
-        "Kennard–Stone representation",
-        [
-            "raw",
-            "derivative_snv",
-            "pca",
-        ],
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_ks_representation"
-        ],
-        disabled=(
-            "kennard_stone"
-            not in validation_methods
-        ),
-    )
-    ks_pca_variance = st.number_input(
-        "KS PCA retained variance",
-        min_value=0.50,
-        max_value=0.999,
-        step=0.01,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_ks_pca_variance"
-        ],
-        disabled=(
-            "kennard_stone"
-            not in validation_methods
-            or ks_representation != "pca"
-        ),
-    )
-
-st.subheader("PLSR preprocessing candidates")
-preprocessing_methods = st.multiselect(
-    "Preprocessing methods to compare",
-    list(PREPROCESSING_NAMES),
-    key=PROFILE_WIDGET_KEYS["soil_mir_preprocessing_methods"],
-    help=(
-        "Nested model selection compares every selected method. "
-        "All 11 methods are available; the original four are selected by default "
-        "to preserve earlier workloads. More methods increase run time."
-    ),
-)
-st.caption(
-    f"{len(preprocessing_methods)} of {len(PREPROCESSING_NAMES)} candidates selected. "
-    "SG smoothing and derivatives operate separately within each spectral interval."
-)
-
-with st.expander("Advanced spectral settings"):
-    sg_window = st.number_input(
-        "Savitzky–Golay window",
-        min_value=3,
-        step=2,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_sg_window"
-        ],
-    )
-    sg_polyorder = st.number_input(
-        "Savitzky–Golay polynomial order",
-        min_value=0,
-        step=1,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_sg_polyorder"
-        ],
-    )
-    random_seed = st.number_input(
-        "Random seed",
-        min_value=0,
-        step=1,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_random_seed"
-        ],
-    )
+    with st.expander("Performance settings"):
+        st.caption(
+            "Outer validation splits can run in parallel. "
+            "Keep the inner numerical thread limit at 1 to avoid "
+            "nested BLAS/OpenMP oversubscription."
+        )
+        outer_n_jobs = cfg_widget(st, "number_input",
+            "Outer parallel workers",
+            min_value=1,
+            max_value=32,
+            step=1,
+            key=PROFILE_WIDGET_KEYS[
+                "soil_mir_outer_n_jobs"
+            ],
+            help=(
+                "Legacy default is 4. A value of 1 runs outer splits "
+                "sequentially."
+            ),
+        )
+        inner_thread_limit = cfg_widget(st, "number_input",
+            "Inner numerical threads per worker",
+            min_value=1,
+            max_value=8,
+            step=1,
+            key=PROFILE_WIDGET_KEYS[
+                "soil_mir_inner_thread_limit"
+            ],
+            help=(
+                "Legacy default is 1. Increasing this while also using "
+                "multiple outer workers can reduce performance."
+            ),
+        )
 
 
-with st.expander("Performance settings"):
-    st.caption(
-        "Outer validation splits can run in parallel. "
-        "Keep the inner numerical thread limit at 1 to avoid "
-        "nested BLAS/OpenMP oversubscription."
-    )
-    outer_n_jobs = st.number_input(
-        "Outer parallel workers",
-        min_value=1,
-        max_value=32,
-        step=1,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_outer_n_jobs"
-        ],
-        help=(
-            "Legacy default is 4. A value of 1 runs outer splits "
-            "sequentially."
-        ),
-    )
-    inner_thread_limit = st.number_input(
-        "Inner numerical threads per worker",
-        min_value=1,
-        max_value=8,
-        step=1,
-        key=PROFILE_WIDGET_KEYS[
-            "soil_mir_inner_thread_limit"
-        ],
-        help=(
-            "Legacy default is 1. Increasing this while also using "
-            "multiple outer workers can reduce performance."
-        ),
-    )
+selected_properties = draft("soil_mir_selected_properties")
+wn_range = (st.session_state["cfg_wn_min"], st.session_state["cfg_wn_max"])
+exclude_co2 = draft("soil_mir_exclude_co2")
+max_rank = draft("soil_mir_max_rank")
+validation_methods = draft("soil_mir_validation_methods")
+region_windows = draft("soil_mir_region_windows")
+tolerance = draft("soil_mir_tolerance")
+use_group_stratification = draft("soil_mir_use_group_stratification")
+internal_cv_folds = draft("soil_mir_internal_cv_folds")
+outer_cv_folds = draft("soil_mir_outer_cv_folds")
+n_repeats = draft("soil_mir_n_repeats")
+validation_fraction = draft("soil_mir_validation_fraction")
+ks_representation = draft("soil_mir_ks_representation")
+ks_pca_variance = draft("soil_mir_ks_pca_variance")
+preprocessing_methods = draft("soil_mir_preprocessing_methods")
+sg_window = draft("soil_mir_sg_window")
+sg_polyorder = draft("soil_mir_sg_polyorder")
+random_seed = draft("soil_mir_random_seed")
+outer_n_jobs = draft("soil_mir_outer_n_jobs")
+inner_thread_limit = draft("soil_mir_inner_thread_limit")
 
 saved_reference_ranges = st.session_state.get(
     "soil_mir_reference_ranges",
     {},
 )
 reference_range_inputs = {}
-with st.expander("Reference-value filters (optional)"):
+if section == "Advanced":
+    st.subheader("Reference-value filters (optional)")
     st.caption(
         "Leave a field blank for no limit. "
         "Limits are applied separately to each property before validation."
     )
-    for property_name in selected_properties:
-        saved = saved_reference_ranges.get(
-            property_name,
-            {},
+for property_name in selected_properties:
+    saved = saved_reference_ranges.get(
+        property_name,
+        {},
+    )
+    min_key = f"ref_min_{property_name}"
+    max_key = f"ref_max_{property_name}"
+    if min_key not in st.session_state:
+        st.session_state[min_key] = (
+            ""
+            if saved.get("min") is None
+            else str(saved.get("min"))
         )
+    if max_key not in st.session_state:
+        st.session_state[max_key] = (
+            ""
+            if saved.get("max") is None
+            else str(saved.get("max"))
+        )
+    if section == "Advanced":
         left_range, right_range = st.columns(2)
-        min_key = f"ref_min_{property_name}"
-        max_key = f"ref_max_{property_name}"
-        if min_key not in st.session_state:
-            st.session_state[min_key] = (
-                ""
-                if saved.get("min") is None
-                else str(saved.get("min"))
-            )
-        if max_key not in st.session_state:
-            st.session_state[max_key] = (
-                ""
-                if saved.get("max") is None
-                else str(saved.get("max"))
-            )
-        with left_range:
-            ref_min_text = st.text_input(
-                f"{property_name} minimum",
-                key=min_key,
-            )
-        with right_range:
-            ref_max_text = st.text_input(
-                f"{property_name} maximum",
-                key=max_key,
-            )
-        reference_range_inputs[property_name] = {
-            "min": ref_min_text,
-            "max": ref_max_text,
-        }
-
+        ref_min_text = cfg_widget(left_range, "text_input", f"{property_name} minimum", key=min_key)
+        ref_max_text = cfg_widget(
+            right_range, "text_input", f"{property_name} maximum", key=max_key
+        )
+    else:
+        ref_min_text = st.session_state[min_key]
+        ref_max_text = st.session_state[max_key]
+    reference_range_inputs[property_name] = {
+        "min": ref_min_text,
+        "max": ref_max_text,
+    }
 
 def parsed_reference_ranges() -> dict:
     parsed = {}
@@ -760,6 +807,28 @@ def validate_current_configuration() -> dict:
     return current_values()
 
 
+try:
+    edited = current_values()
+    st.session_state.rc6_configuration_dirty = any(
+        st.session_state.get(key) != value for key, value in edited.items()
+    )
+except (ValueError, TypeError):
+    st.session_state.rc6_configuration_dirty = True
+
+st.divider()
+st.caption(
+    f"Properties: {', '.join(selected_properties) or 'None'} | "
+    f"Range: {wn_range[0]:g}–{wn_range[1]:g} cm⁻¹ | "
+    f"Validation: {', '.join(map(validation_method_label, validation_methods)) or 'None'} | "
+    f"{len(preprocessing_methods)} preprocessing candidates | Seed {random_seed} | "
+    f"Group stratification: {'on' if use_group_stratification else 'off'} | "
+    f"CO₂ exclusion: {'on' if exclude_co2 else 'off'}"
+)
+if st.session_state.rc6_configuration_dirty:
+    st.warning("Unapplied configuration edits. Validate and save before starting a new run.")
+else:
+    st.success("Configuration is applied.")
+
 if st.button(
     "Validate and save configuration",
     type="primary",
@@ -770,11 +839,12 @@ if st.button(
         st.error(str(exc))
     else:
         st.session_state.update(values)
+        st.session_state.rc6_configuration_dirty = False
         st.success(
             "Configuration is valid and saved for this session."
         )
 
-if output_dir:
+if section == "Profiles" and output_dir:
     st.subheader("Save profile")
     profile_name = st.text_input(
         "Profile name",
@@ -796,6 +866,7 @@ if output_dir:
             st.error(str(exc))
         else:
             st.session_state.update(values)
+            st.session_state.rc6_configuration_dirty = False
             st.success(
                 f"Saved configuration profile: {path.name}"
             )
