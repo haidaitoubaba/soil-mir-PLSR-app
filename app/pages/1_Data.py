@@ -578,6 +578,7 @@ if (
                         expanded=False,
                     )
             except Exception as exc:
+                st.session_state.pop("rc6_data_acceptance", None)
                 st.error(
                     "Full local data acceptance failed."
                 )

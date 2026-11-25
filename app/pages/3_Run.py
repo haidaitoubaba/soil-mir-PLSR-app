@@ -213,6 +213,7 @@ def render_active_validation():
         "soil_mir_background_message",
         None,
     )
+    request_section("run", "Summary")
     st.rerun()
 
 
@@ -230,8 +231,6 @@ if run_is_active:
     st.stop()
 
 if section == "Summary":
-    render_active_validation()
-
     last_outcome = st.session_state.get(
         "soil_mir_last_run_outcome"
     )
@@ -684,7 +683,10 @@ if section == "Preflight":
                             )
                         ),
                         cache_root=cache_root,
-                        **({"opus_axis_mode": opus_axis_mode} if opus_axis_mode != OPUS_NATIVE else {}),
+                        **(
+                            {"opus_axis_mode": opus_axis_mode}
+                            if opus_axis_mode != OPUS_NATIVE else {}
+                        ),
                         **({"qc_manifest": qc_manifest} if qc_manifest else {}),
                         ref_min=property_range.get(
                             "min"

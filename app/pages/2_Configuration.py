@@ -690,7 +690,9 @@ for property_name in selected_properties:
     if section == "Advanced":
         left_range, right_range = st.columns(2)
         ref_min_text = cfg_widget(left_range, "text_input", f"{property_name} minimum", key=min_key)
-        ref_max_text = cfg_widget(right_range, "text_input", f"{property_name} maximum", key=max_key)
+        ref_max_text = cfg_widget(
+            right_range, "text_input", f"{property_name} maximum", key=max_key
+        )
     else:
         ref_min_text = st.session_state[min_key]
         ref_max_text = st.session_state[max_key]
