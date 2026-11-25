@@ -702,6 +702,7 @@ elif section == "Model Selection":
                     ),
                 }
                 st.session_state.rc6_predict_root = str(Path(last_run).parent)
+                st.session_state.rc6_predict_incoming = True
                 request_section("predict", "Model")
                 st.switch_page(
                     "pages/5_Predict.py"
@@ -953,5 +954,6 @@ elif section == "Export":
             }
             if last_run:
                 st.session_state.rc6_predict_root = str(Path(last_run).parent)
+                st.session_state.rc6_predict_incoming = True
             request_section("predict", "Model")
             st.switch_page("pages/5_Predict.py")

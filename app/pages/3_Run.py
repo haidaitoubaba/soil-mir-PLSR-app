@@ -151,13 +151,9 @@ def render_active_validation():
             "comparison_path",
             "",
         )
-        if run_dir:
-            st.session_state[
-                "soil_mir_last_run_dir"
-            ] = run_dir
-        st.session_state[
-            "soil_mir_last_comparison"
-        ] = comparison
+        if results:
+            st.session_state["soil_mir_last_run_dir"] = run_dir
+            st.session_state["soil_mir_last_comparison"] = comparison
 
         pending = outcome.get(
             "pending",

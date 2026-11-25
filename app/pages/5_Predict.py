@@ -53,15 +53,14 @@ def _safe_name(value: str) -> str:
 preferences = load_path_preferences()
 
 state = st.session_state
-reset_confirmation_key = state.pop("rc6_predict_reset_confirm", None)
-if reset_confirmation_key:
-    state.pop(reset_confirmation_key, None)
 section = section_navigation("predict")
 for key, value in {
     "soil_mir_predict_model_input": "",
     "soil_mir_predict_spectra_input": "",
     "soil_mir_predict_reference_input": preferences.get("reference_excel", ""),
-    "soil_mir_predict_output_input": state.get("soil_mir_output_dir", preferences.get("output_dir", "")),
+    "soil_mir_predict_output_input": state.get(
+        "soil_mir_output_dir", preferences.get("output_dir", "")
+    ),
 }.items():
     state.setdefault(key, value)
 
@@ -69,6 +68,7 @@ for key, value in {
 def invalidate_compatibility():
     state.pop("soil_mir_prediction_compatibility", None)
     state.pop("rc6_predict_confirmation", None)
+    state.rc6_predict_confirmation_epoch = state.get("rc6_predict_confirmation_epoch", 0) + 1
 
 
 def clear_model():
@@ -152,7 +152,8 @@ if section == "Model":
     )
     if source == "Run History":
         state.setdefault("rc6_predict_root_input", state.get("rc6_predict_root") or state.get(
-            "rc6_history_root") or state.get("soil_mir_output_dir", preferences.get("output_dir", "")))
+            "rc6_history_root") or state.get(
+                "soil_mir_output_dir", preferences.get("output_dir", "")))
         root_text = path_widget(
             "Model library / Results directory", "rc6_predict_root_input",
             kind="directory", prompt="Choose model library", placeholder="/path/to/results",
@@ -385,7 +386,7 @@ def input_identity():
 config_id, reference = None, None
 try:
     config_id, reference = input_identity()
-except (OSError, ValueError, KeyError) as exc:
+except Exception as exc:
     if section != "Results":
         st.warning(str(exc))
     invalidate_compatibility()
@@ -412,7 +413,8 @@ if section == "Compatibility":
             st.success(report["reason"])
             if report["requires_confirmation"]:
                 st.warning("Extrapolation exceeds 0.25 cm⁻¹. Validate the impact on predictions.")
-                confirm_key = f"predict_confirm_{config_id}_{report['signature']}"
+                epoch = state.get("rc6_predict_confirmation_epoch", 0)
+                confirm_key = f"predict_confirm_{epoch}_{config_id}_{report['signature']}"
                 if confirm_key not in state:
                     state[confirm_key] = confirmed_signature is not None
 
@@ -473,7 +475,7 @@ if check or run:
             invalidate_compatibility()
             raise ValueError("Input files changed. Repeat compatibility check.")
         if check:
-            state.pop("rc6_predict_confirmation", None)
+            invalidate_compatibility()
             confirmed_signature = None
         output_root = Path(output_dir).expanduser() if output_dir.strip() else None
         cache_root = (output_root / ".soil_mir_cache" if output_root is not None
@@ -491,13 +493,12 @@ if check or run:
                 inspect_only=check, require_confirmation=True,
                 confirmed_signature=confirmed_signature,
             )
+            if input_identity()[0] != config_id:
+                raise ValueError("Input files changed during processing. Repeat compatibility check.")
             state.soil_mir_prediction_compatibility = {
                 "config_id": config_id, "report": result["compatibility"],
             }
             if check:
-                confirm_key = f"predict_confirm_{config_id}_{result['compatibility']['signature']}"
-                # Reset the widget on the next rerun, not after it has been instantiated.
-                state.rc6_predict_reset_confirm = confirm_key
                 st.rerun()
             bundle = result["bundle"]
             property_name = str(bundle.get("property_name", "prediction"))
@@ -524,9 +525,8 @@ if check or run:
             request_section("predict", "Results")
             st.rerun()
     except PredictionCompatibilityError as exc:
+        invalidate_compatibility()
         state.soil_mir_prediction_compatibility = {"config_id": config_id, "report": exc.report}
-        state.pop("rc6_predict_confirmation", None)
-        state.rc6_predict_reset_confirm = f"predict_confirm_{config_id}_{exc.report['signature']}"
         state.rc6_predict_failed = config_id
         request_section("predict", "Compatibility")
         st.rerun()
@@ -614,7 +614,8 @@ if section == "Results":
                 f"Aligned range: {input_metadata['Aligned minimum (cm⁻¹)']:.4f}–"
                 f"{input_metadata['Aligned maximum (cm⁻¹)']:.4f} cm⁻¹"
             )
-            if input_metadata["Prediction OPUS axis mode"] != input_metadata["Model OPUS axis mode"]:
+            if (input_metadata.get("Prediction OPUS axis mode")
+                    != input_metadata.get("Model OPUS axis mode")):
                 st.info("Prediction used a different OPUS axis method from model calibration.")
         compatibility = result.get("compatibility")
         if compatibility:

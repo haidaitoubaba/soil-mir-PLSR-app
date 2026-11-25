@@ -7,7 +7,9 @@ import pandas as pd
 import streamlit as st
 
 from soil_mir.reporting import list_run_history
-from soil_mir.services.local_paths import choose_local_path, load_path_preferences, open_local_folder
+from soil_mir.services.local_paths import (
+    choose_local_path, load_path_preferences, open_local_folder,
+)
 from soil_mir.services.model_catalog import list_model_catalog
 from soil_mir.services.profiles import profile_widget_updates
 from soil_mir.services.run_alias import alias_info, run_display_label, set_run_alias
@@ -163,7 +165,8 @@ if alias_error:
 
 if section == "Run Library":
     name = st.text_input("Custom run name", value=alias, key=f"history_alias_{run_key}",
-                         max_chars=100, help="Blank clears the display name; Run ID stays unchanged.")
+                         max_chars=100,
+                         help="Blank clears the display name; Run ID stays unchanged.")
     if st.button("Save run name"):
         try:
             set_run_alias(output_dir, run_dir, name)
@@ -425,7 +428,8 @@ elif section == "Management":
                     ):
                         for key in ("soil_mir_predict_model_input",
                                     "soil_mir_predict_selected_history_model",
-                                    "rc6_predict_preview", "soil_mir_predict_compatibility"):
+                                    "rc6_predict_preview", "soil_mir_prediction_compatibility",
+                                    "rc6_predict_model_identity", "rc6_predict_confirmation"):
                             st.session_state.pop(key, None)
                         st.session_state.rc6_predict_selection_removed = True
                     reset_remembered(f"history_selected_{root_key}", "")

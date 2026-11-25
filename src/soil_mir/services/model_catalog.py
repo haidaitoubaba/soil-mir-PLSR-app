@@ -62,7 +62,8 @@ def list_model_catalog(output_root, manifests=None):
                     "id": identity, "path": str(path), "run_id": run_id,
                     "run_dir": str(run_dir), "root": str(root),
                     "run_name": alias, "run_label": run_display_label(run_id, alias),
-                    "run_status": manifest.get("status", ""), "run_created": manifest.get("created_at"),
+                    "run_status": manifest.get("status", ""),
+                    "run_created": manifest.get("created_at"),
                     "alias_error": alias_error, "property": property_name, "method": method,
                     "model_role": role, "variant": variant, "refit_tolerance_pct": tolerance,
                     "source_validation_tolerance_pct": record.get(
