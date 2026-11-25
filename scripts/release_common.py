@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import tomllib
-from pathlib import Path
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,3 +95,35 @@ def release_identity(version: str, label: str) -> tuple[str, str, bool]:
     else:
         bundle_root = f"soil-mir-app-{version_tag}-{clean_label}"
     return clean_label, bundle_root, is_final_release
+
+
+
+def release_timestamp() -> int:
+    """Use the checked-out commit's timestamp, never the build wall clock."""
+    ci_timestamp = os.environ.get("CI_COMMIT_TIMESTAMP")
+    if ci_timestamp:
+        value = datetime.fromisoformat(ci_timestamp.replace("Z", "+00:00"))
+        if value.tzinfo is None:
+            raise ValueError("CI_COMMIT_TIMESTAMP must include a timezone")
+        timestamp = int(value.timestamp())
+    else:
+        timestamp = int(subprocess.check_output(
+            ["git", "log", "-1", "--format=%ct", "HEAD"],
+            cwd=ROOT, text=True,
+        ).strip())
+    # Both tar/gzip and ZIP must represent the same release date.
+    year = datetime.fromtimestamp(timestamp, timezone.utc).year
+    if not 1980 <= year <= 2107 or timestamp > 0xFFFFFFFF:
+        raise ValueError("Release commit timestamp is outside the supported archive range")
+    return timestamp
+
+
+def release_directories(bundle_root: str, files: list[Path]) -> list[str]:
+    """List explicit parent directories in deterministic parent-first order."""
+    directories = {bundle_root}
+    for path in files:
+        relative = PurePosixPath(path.relative_to(ROOT).as_posix())
+        for parent in relative.parents:
+            if parent != PurePosixPath("."):
+                directories.add(f"{bundle_root}/{parent.as_posix()}")
+    return sorted(directories, key=lambda name: (name.count("/"), name))

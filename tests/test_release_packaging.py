@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
 import stat
+import struct
 import subprocess
 import sys
 import tarfile
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -231,3 +234,46 @@ def test_versioned_release_candidate_uses_clean_artifact_name(
             assert f"{expected_root}/run_app.bat" in handle.namelist()
             readme = handle.read(f"{expected_root}/WINDOWS_RELEASE_README.txt")
             assert "Windows release candidate" in readme.decode("utf-8")
+
+
+
+@pytest.mark.parametrize("platform", ["mac", "windows"])
+def test_release_timestamp_and_reproducibility(tmp_path: Path, platform: str) -> None:
+    iso_timestamp = "2026-11-25T18:25:01Z"
+    timestamp = int(datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00")).timestamp())
+    env = {**os.environ, "CI_COMMIT_TIMESTAMP": iso_timestamp}
+    archives = []
+    for folder in ("first", "second"):
+        result = subprocess.run(
+            [sys.executable, f"scripts/build_{platform}_release.py",
+             "--output-dir", str(tmp_path / folder), "--label", "test-rc",
+             "--commit", "deadbeef"],
+            cwd=ROOT, env=env, check=True, capture_output=True, text=True,
+        )
+        archives.append(Path(result.stdout.strip()))
+    archive = archives[0]
+    assert archive.read_bytes() == archives[1].read_bytes()
+    assert int(archive.stat().st_mtime) == timestamp
+
+    if platform == "mac":
+        assert struct.unpack("<I", archive.read_bytes()[4:8])[0] == timestamp
+        extracted = tmp_path / "extracted"
+        extracted.mkdir()
+        with tarfile.open(archive, "r:gz") as handle:
+            assert all(member.mtime == timestamp for member in handle.getmembers())
+            assert any(member.isdir() for member in handle.getmembers())
+            root = handle.getmembers()[0].name
+            handle.extractall(extracted)
+        assert int((extracted / root).stat().st_mtime) == timestamp
+        assert int((extracted / root / "app").stat().st_mtime) == timestamp
+        launcher = extracted / root / "run_app.command"
+        assert int(launcher.stat().st_mtime) == timestamp
+        assert stat.S_IMODE(launcher.stat().st_mode) == 0o755
+    else:
+        expected = datetime.fromtimestamp(timestamp, timezone.utc).timetuple()[:5] + (0,)
+        with zipfile.ZipFile(archive) as handle:
+            assert any(member.is_dir() for member in handle.infolist())
+            assert handle.testzip() is None
+            for member in handle.infolist():
+                assert member.date_time == expected
+                assert member.extra == struct.pack("<HHBI", 0x5455, 5, 1, timestamp)

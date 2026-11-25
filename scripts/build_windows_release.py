@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import os
+import struct
 import sys
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from release_common import (
     ROOT,
     iter_release_files,
+    release_directories,
     release_identity,
+    release_timestamp,
     validate_release_inputs,
 )
 
@@ -23,15 +28,20 @@ WINDOWS_REQUIRED_FILES = (
 WINDOWS_INCLUDE_ENTRIES = WINDOWS_REQUIRED_FILES
 
 
-def zip_info(name: str) -> zipfile.ZipInfo:
-    info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+def zip_info(name: str, timestamp: int) -> zipfile.ZipInfo:
+    date_time = datetime.fromtimestamp(timestamp, timezone.utc).timetuple()[:6]
+    info = zipfile.ZipInfo(name, date_time=date_time)
     info.compress_type = zipfile.ZIP_DEFLATED
     info.create_system = 0
+    # Extended timestamp records UTC seconds, beyond DOS's two-second precision.
+    info.extra = struct.pack("<HHBI", 0x5455, 5, 1, timestamp)
+    if name.endswith("/"):
+        info.external_attr = 0x10
     return info
 
 
-def add_bytes(handle: zipfile.ZipFile, name: str, content: bytes) -> None:
-    handle.writestr(zip_info(name), content)
+def add_bytes(handle: zipfile.ZipFile, name: str, content: bytes, timestamp: int) -> None:
+    handle.writestr(zip_info(name, timestamp), content)
 
 
 def windows_file_bytes(path: Path) -> bytes:
@@ -82,26 +92,34 @@ For release validation, see WINDOWS_RELEASE_CHECKLIST.md.
 
     build_info = f"version={version}\nlabel={label}\ncommit={commit}\n"
 
+    timestamp = release_timestamp()
+    files = iter_release_files(WINDOWS_INCLUDE_ENTRIES)
     with zipfile.ZipFile(archive, "w") as handle:
-        for path in iter_release_files(WINDOWS_INCLUDE_ENTRIES):
+        for name in release_directories(bundle_root, files):
+            add_bytes(handle, f"{name}/", b"", timestamp)
+        for path in files:
             relative = path.relative_to(ROOT).as_posix()
             add_bytes(
                 handle,
                 f"{bundle_root}/{relative}",
                 windows_file_bytes(path),
+                timestamp,
             )
 
         add_bytes(
             handle,
             f"{bundle_root}/WINDOWS_RELEASE_README.txt",
             release_readme.encode("utf-8"),
+            timestamp,
         )
         add_bytes(
             handle,
             f"{bundle_root}/BUILD_INFO.txt",
             build_info.encode("utf-8"),
+            timestamp,
         )
 
+    os.utime(archive, (timestamp, timestamp))
     verify_bundle(archive, bundle_root)
     return archive
 

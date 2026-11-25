@@ -81,31 +81,15 @@ def render_sidebar(home):
         for identifier, title, path, icon in PAGES
     ]
     active = st.navigation([page for _, _, page, _ in pages], position="hidden")
-    state = st.session_state
-    compact = state.get("rc7_sidebar_compact", False)
-
-    def toggle():
-        state.rc7_sidebar_compact = not state.get("rc7_sidebar_compact", False)
-
     with st.sidebar:
-        if not compact:
-            st.markdown(f"### {material('eco')} Soil MIR PLSR")
-            st.caption("Workspace")
-        st.button(
-            material("left_panel_open" if compact else "left_panel_close")
-            + ("  Expand" if compact else "  Compact"),
-            key="rc7_sidebar_toggle", on_click=toggle,
-            help="Toggle compact icon navigation. The sidebar can also be resized or collapsed.",
-            use_container_width=True,
-        )
+        st.markdown(f"### {material('eco')} Soil MIR PLSR")
+        st.caption("Workspace")
         for identifier, title, page, icon in pages:
             if identifier == "history":
                 st.divider()
             # Native page links handle active-page styling and routing.
-            label = material(icon) if compact else title
-            st.page_link(page, label=label, icon=None if compact else material(icon),
+            st.page_link(page, label=title, icon=material(icon),
                          help=title, use_container_width=True)
         st.divider()
-        if not compact:
-            st.caption(f"{material('hard_drive')} Local workspace")
+        st.caption(f"{material('hard_drive')} Local workspace")
     return active
