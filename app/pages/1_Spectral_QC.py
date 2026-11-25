@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from soil_mir.io.opus import list_opus_files
-from soil_mir.qc import Criteria, REGIONS, group_issues
+from soil_mir.qc import COMPARISON_METHODS, DECISION_STRATEGIES, Criteria, REGIONS, group_issues
 from soil_mir.preprocessing import NO_SG_METHODS, PREPROCESSING_NAMES
 from soil_mir.services.local_paths import choose_local_path, open_local_folder
 from soil_mir.services.spectral_qc import (
@@ -23,8 +23,26 @@ from soil_mir.services.spectral_qc import (
 from soil_mir.services.qc_manifest import (
     DECISION_ORDER, apply_review_edits, build_manifest, criteria_from_dict,
     decision_export_rows, export_decision_spectra, input_settings, read_mapping, resolve_groups,
-    review_selection, save_manifest, validate_manifest,
+    review_history_push, review_history_undo, review_selection, save_manifest, validate_manifest,
 )
+
+def set_review_state(updated, notice, *, history=None):
+    """Commit a shared review transaction and invalidate stale frozen selections."""
+    state = st.session_state
+    if updated == state.qc_reviews:
+        return False
+    if history is None:
+        history = review_history_push(
+            state.qc_reviews, updated, state.get("qc_review_history", [])
+        )
+    state.qc_review_history = history
+    state.qc_reviews = updated
+    if state.pop("qc_frozen", None):
+        notice += " Previous frozen selection is no longer current; freeze again if needed."
+    state.qc_review_revision = state.get("qc_review_revision", 0) + 1
+    state.qc_review_notice = notice
+    return True
+
 
 def save_review_edits(edits, file_table):
     try:
@@ -32,11 +50,7 @@ def save_review_edits(edits, file_table):
     except ValueError as exc:
         st.error(str(exc))
         return
-    if updated != st.session_state.qc_reviews:
-        st.session_state.qc_reviews = updated
-        st.session_state.pop("qc_frozen", None)
-        st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
-        st.session_state.qc_review_notice = "Review decisions saved and synchronized."
+    if set_review_state(updated, "Review decisions saved and synchronized."):
         st.rerun()
     else:
         st.info("No review changes to save.")
@@ -155,18 +169,28 @@ if st.button("Reset acceptance defaults"):
     for key, value in {
         "qc_mode": "USDA-inspired", "qc_similarity": 99.6,
         "qc_nrmse_pass": 2., "qc_nrmse_fail": 5.,
+        "qc_strategy": "Routine QC", "qc_method": "USDA-style",
     }.items():
         st.session_state[key] = value
     for key in list(st.session_state):
         if key.startswith("qc_reg_"):
             del st.session_state[key]
+strategy = st.selectbox("Decision strategy", DECISION_STRATEGIES, key="qc_strategy")
+if strategy == "Routine QC":
+    comparison_method = st.radio(
+        "Active comparison method", COMPARISON_METHODS, key="qc_method", horizontal=True
+    )
+else:
+    comparison_method = "All-pairwise"
+    st.caption("Spectral screening uses all-pairwise comparisons.")
+st.caption("Dual Pearson evaluation is always enabled.")
 mode = st.radio("QC mode", ["USDA-inspired", "Advanced"], key="qc_mode", horizontal=True)
 similarity = st.number_input(
     "Minimum spectral similarity (Pearson r, %; strict >)",
     min_value=0., max_value=99.9999, value=99.6, step=.1, format="%.4f", key="qc_similarity",
 )
 st.caption(
-    "99.6% is a USDA-inspired default; this all-pair Pearson implementation "
+    "99.6% is a USDA-inspired default; this Pearson implementation "
     "is not claimed to be numerically identical to OPUS Quick Compare."
 )
 nrmse_pass, nrmse_fail = 2., 5.
@@ -185,7 +209,10 @@ if mode == "Advanced":
                 f = b.number_input("Fail limit (AU)", value=.03, key=f"qc_reg_f_{region_key}")
                 regional_limits[(low, high)] = (p, f)
 try:
-    criteria = Criteria(similarity, mode == "Advanced", nrmse_pass, nrmse_fail, regional_limits)
+    criteria = Criteria(
+        similarity, mode == "Advanced", nrmse_pass, nrmse_fail, regional_limits,
+        strategy, comparison_method,
+    )
 except ValueError as exc:
     st.error(str(exc))
     st.stop()
@@ -234,6 +261,7 @@ if st.button("Run QC", type="primary", disabled=not names):
         st.session_state.qc_data = data
         st.session_state.qc_config = config
         st.session_state.qc_reviews = {}
+        st.session_state.qc_review_history = []
         st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
         st.session_state.pop("qc_frozen", None)
         st.session_state.qc_review_criteria = criteria
@@ -254,14 +282,18 @@ if st.session_state.get("qc_review_criteria") != criteria:
     if st.session_state.qc_reviews:
         archive.append((st.session_state.qc_review_criteria, st.session_state.qc_reviews.copy()))
     st.session_state.qc_reviews = {}
+    st.session_state.qc_review_history = []
     st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
     st.session_state.pop("qc_frozen", None)
     st.session_state.qc_review_criteria = criteria
-    st.info("Threshold changed: cached metrics reused; review decisions require reconfirmation.")
+    st.info("QC rule changed: cached metrics reused; review decisions require reconfirmation.")
 tables = evaluate_batch(data, criteria, st.session_state.qc_reviews)
 overview = tables["Overview"].set_index("Metric")["Value"]
-st.subheader("QC summary — active all-pair QC")
-for col, key in zip(st.columns(4), ["Pass", "Review", "Fail", "Incomplete"]):
+st.subheader(f"QC summary — {strategy} / {comparison_method}")
+keys = ["Consistent", "Inconsistent", "Incomplete"] if strategy == "Routine QC" else [
+    "Pass", "Review", "Fail", "Incomplete",
+]
+for col, key in zip(st.columns(len(keys)), keys):
     col.metric(key, int(overview[key]))
 st.caption(
     f"Identified samples: {int(overview['Identified samples'])}; "
@@ -294,7 +326,7 @@ st.caption(
     "Both use the same raw Pearson coefficients and strict threshold. USDA-style uses "
     "replicate ID 1 as reference (self = 100%); all-pairwise tests every pair. "
     "Not validated against OPUS Quick Compare. Advanced NRMSE/region gates affect only "
-    "active all-pair QC and review decisions, not this Pearson-only comparison."
+    "active required pairs and review decisions, not this Pearson-only comparison."
 )
 comparison = tables["Method Comparison"]
 sensitivity = tables["Threshold Sensitivity"]
@@ -355,7 +387,18 @@ if not summary.empty:
     st.dataframe(comparison.loc[comparison["Sample ID"] == sample], hide_index=True)
     pair_frame = tables["Pairwise QC"]
     if not pair_frame.empty:
-        st.dataframe(pair_frame.loc[pair_frame["Sample ID"] == sample], hide_index=True)
+        shown_pairs = pair_frame.loc[pair_frame["Sample ID"] == sample].copy()
+        shown_pairs["Reference comparison"] = shown_pairs["Reference comparison"].map(
+            {True: "Yes", False: "No — all-pairwise only"}
+        )
+        shown_pairs = shown_pairs.rename(columns={
+            "Reference comparison": "Used in USDA-style comparison",
+        })
+        st.caption(
+            "Read-only method membership: Yes = pair includes replicate 1; "
+            "No = only used in all-pairwise comparison. Not a QC pass indicator."
+        )
+        st.dataframe(shown_pairs, hide_index=True)
     regional_frame = tables["Regional QC"]
     if not regional_frame.empty:
         with st.expander("Regional QC"):
@@ -431,7 +474,8 @@ if not summary.empty:
         plt.close(fig)
     file_rows = tables["Replicate Diagnosis"]
     concise = ["Replicate ID", "File Name", "File Diagnosis", "Recommended decision",
-               "Manual decision", "Min similarity (%)", "Recommendation reason"]
+               "Manual decision", "Decision source", "Min similarity (%)",
+               "Recommendation reason"]
     review_editor(file_rows.loc[file_rows["Sample ID"] == sample, concise],
                   "sample", tables["File QC"])
     st.subheader("Review decision")
@@ -449,18 +493,66 @@ if not summary.empty:
             }], tables["File QC"])
 st.subheader("Batch review decisions")
 st.caption(
-    "Apply recommendations only to files without existing decisions: keep agreeing scans, "
-    "recommend rescanning a uniquely suspected third scan. Ambiguous and invalid inputs "
-    "stay pending. This never changes or deletes original spectra."
+    "Apply the active policy to unreviewed files only. Routine QC recommends Keep all "
+    "or Rescan all for valid samples. Existing manual decisions remain untouched; "
+    "input issues and ambiguous screening cases stay pending. No source files are changed."
 )
+pending_files = tables["File QC"].loc[
+    tables["File QC"]["Manual decision"] == "Pending review"
+].copy()
+st.write(f"Pending review: {len(pending_files)} files")
+if not pending_files.empty:
+    pending_files["Pending cause"] = pending_files.apply(
+        lambda row: "Explicitly saved Pending" if row["Decision source"] != "Not reviewed"
+        else "Awaiting batch application" if row["Recommended decision"] != "Pending review"
+        else row["Recommendation reason"], axis=1,
+    )
+    st.dataframe(pending_files["Pending cause"].value_counts().rename("Files"), hide_index=False)
+if strategy == "Routine QC":
+    conflicts = tables["File QC"].loc[
+        (tables["File QC"]["Manual decision"] != "Pending review")
+        & (tables["File QC"]["Manual decision"] != tables["File QC"]["Recommended decision"])
+    ]
+    if not conflicts.empty:
+        st.warning(
+            f"{len(conflicts)} saved decisions differ from Routine QC recommendations. "
+            "Resolve overrides before freezing a whole-sample calibration selection."
+        )
 if st.button("Apply recommended decisions to unreviewed files"):
     updated = recommended_reviews(tables, st.session_state.qc_reviews)
     count = len(updated) - len(st.session_state.qc_reviews)
-    st.session_state.qc_reviews = updated
-    st.session_state.pop("qc_frozen", None)
-    st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
-    st.session_state.qc_review_notice = f"Applied {count} recommended decisions."
-    st.rerun()
+    if set_review_state(updated, f"Applied {count} recommended decisions."):
+        st.rerun()
+    st.info("No additional unreviewed files have an actionable recommendation.")
+st.caption(
+    "Decision source: Not reviewed = no saved decision. Manual = explicitly saved "
+    "by you. Applied recommendation = saved by the batch action."
+)
+history = st.session_state.get("qc_review_history", [])
+revision = st.session_state.get("qc_review_revision", 0)
+with st.expander("Reset or undo review decisions"):
+    st.caption(
+        "Clear removes all saved decisions and reasons, not QC metrics or spectra. "
+        "Undo restores the preceding saved state (up to 20 actions in this session). "
+        "History resets after Run QC or a criteria change. Exported files and saved "
+        "manifests are not modified; a changed selection must be frozen again."
+    )
+    confirmed_clear = st.checkbox(
+        "Confirm clearing all manual and applied decisions",
+        key=f"qc_confirm_clear_{revision}",
+        disabled=not st.session_state.qc_reviews,
+    )
+    clear_col, undo_col = st.columns(2)
+    if clear_col.button(
+        "Clear all decisions", disabled=not confirmed_clear or not st.session_state.qc_reviews
+    ):
+        count = len(st.session_state.qc_reviews)
+        if set_review_state({}, f"Cleared {count} decisions. Use Undo to restore them."):
+            st.rerun()
+    if undo_col.button("Undo last decision change", disabled=not history):
+        updated, remaining = review_history_undo(st.session_state.qc_reviews, history)
+        if set_review_state(updated, "Restored previous review state.", history=remaining):
+            st.rerun()
 if st.session_state.get("qc_review_notice"):
     st.success(st.session_state.pop("qc_review_notice"))
 with st.expander("All files and unresolved inputs"):
@@ -477,7 +569,7 @@ with st.expander("All files and unresolved inputs"):
     detailed = st.checkbox("Show detailed metrics and error messages")
     columns = [
         "Sample ID", "Replicate ID", "File Name", "File Diagnosis", "Recommended decision",
-        "Manual decision", "Recommendation reason",
+        "Manual decision", "Decision source", "Recommendation reason",
     ]
     review_editor(display if detailed else display.reindex(columns=columns),
                   "all_files", file_table)
@@ -489,8 +581,8 @@ agreed_tab, review_tab, rescan_tab = st.tabs(["Agreed spectra", "Review decision
 with agreed_tab:
     agreed = tables["Agreed Spectra"]
     st.caption(
-        "Automatic recommendation, not an approved PLSR selection. Includes all-pass groups "
-        "and the unique passing pair of a complete triplet. Manual decisions remain separate."
+        "Keep recommendations under the active policy, not an approved PLSR selection. "
+        "Manual decisions remain separate."
     )
     st.write(f"{len(agreed)} agreed spectra across {agreed['Sample ID'].nunique()} samples.")
     review_editor(agreed, "agreed", tables["File QC"])
@@ -504,6 +596,14 @@ with review_tab:
     st.download_button("Export Reviewed Keep List", kept.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"Reviewed_Keep_{timestamp}.csv", mime="text/csv")
 with rescan_tab:
+    sample_rescans = tables["Sample Rescan List"]
+    st.markdown("**Sample-level rescan list**")
+    st.dataframe(sample_rescans, hide_index=True)
+    st.download_button(
+        "Export Sample Rescan List", sample_rescans.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"Sample_Rescan_List_{timestamp}.csv", mime="text/csv",
+    )
+    st.markdown("**Replicate-level rescan list**")
     rescan = tables["Rescan List"]
     rescan_mode = st.radio("Rescan export", ["All", "Confirmed only", "Suggestions only"],
                            horizontal=True)
@@ -567,10 +667,9 @@ if restore and st.button("Restore saved review"):
         current = input_settings(data)
         if payload["input"] != current or criteria_from_dict(payload["criteria"]) != criteria:
             raise ValueError("Input settings or thresholds differ from saved review.")
-        st.session_state.qc_reviews = payload["decisions"]
-        st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
-        st.session_state.pop("qc_frozen", None)
-        st.rerun()
+        if set_review_state(payload["decisions"], "Restored saved review."):
+            st.rerun()
+        st.info("Saved review already matches the current decisions.")
     except Exception as exc:
         st.error(f"Cannot restore: {exc}")
 

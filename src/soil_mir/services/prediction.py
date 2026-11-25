@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 from pathlib import Path
 
 import joblib
@@ -13,6 +16,7 @@ from soil_mir.io.opus import (
     align_spectral_library,
     crop_spectrum,
     list_opus_files,
+    validate_wavenumbers,
 )
 from soil_mir.metrics import (
     grouped_average_frame,
@@ -317,6 +321,7 @@ def load_external_opus_library(
     opus_axis_mode: str = OPUS_NATIVE,
     crop_min_cm1: float | None = None,
     crop_max_cm1: float | None = None,
+    coverage: dict | None = None,
 ) -> tuple[
     dict[str, np.ndarray],
     np.ndarray,
@@ -363,6 +368,10 @@ def load_external_opus_library(
                 opus_axis_mode=opus_axis_mode,
             )
 
+    if coverage is not None:
+        coverage["native"] = {
+            name: _axis_summary(axis) for name, (_, axis) in raw.items()
+        }
     if crop_min_cm1 is not None or crop_max_cm1 is not None:
         for name, (values, axis) in raw.items():
             try:
@@ -370,6 +379,10 @@ def load_external_opus_library(
             except ValueError as exc:
                 raise ValueError(f"Cannot crop {name}: {exc}") from exc
 
+    if coverage is not None:
+        coverage["effective"] = {
+            name: _axis_summary(axis) for name, (_, axis) in raw.items()
+        }
     raw_spectra = {
         name: values
         for name, (values, _axis) in raw.items()
@@ -383,6 +396,105 @@ def load_external_opus_library(
         raw_axes,
     )
     return aligned, axis, cache_stats
+
+
+def _axis_summary(axis):
+    axis = validate_wavenumbers(np.asarray(axis, dtype=float))
+    intervals = np.abs(np.diff(axis))
+    return {
+        "minimum": float(axis.min()), "maximum": float(axis.max()),
+        "points": int(len(axis)), "median spacing": float(np.median(intervals)),
+        "direction": "descending" if axis[0] > axis[-1] else "ascending",
+    }
+
+
+def spectral_compatibility(model_axis, aligned_axis, coverage=None, *,
+                           mode="Automatic", manual_tolerance=0.25, automatic_limit=10.0):
+    """Calculate actual model-grid coverage after alignment and any input crop."""
+    model_axis = validate_wavenumbers(np.asarray(model_axis, dtype=float))
+    aligned_axis = validate_wavenumbers(np.asarray(aligned_axis, dtype=float))
+    model = _axis_summary(model_axis)
+    external = _axis_summary(aligned_axis)
+    if mode not in {"Automatic", "Manual"}:
+        raise ValueError("Unknown endpoint extrapolation mode.")
+    if any(not np.isfinite(v) or v < 0 for v in (manual_tolerance, automatic_limit)):
+        raise ValueError("Extrapolation limits must be finite and non-negative.")
+    lower = max(0., external["minimum"] - model["minimum"])
+    upper = max(0., model["maximum"] - external["maximum"])
+    required = max(lower, upper)
+    limit = automatic_limit if mode == "Automatic" else manual_tolerance
+    tolerance = (
+        min(limit, max(0.25, math.ceil(required * 100) / 100, required))
+        if mode == "Automatic" else manual_tolerance
+    )
+    overlap_low = max(model["minimum"], external["minimum"])
+    overlap_high = min(model["maximum"], external["maximum"])
+    native = (coverage or {}).get("native", {})
+    effective = (coverage or {}).get("effective", {})
+    outside = (model_axis < external["minimum"]) | (model_axis > external["maximum"])
+    missing = int(outside.sum())
+    if overlap_low >= overlap_high:
+        reason = "No usable overlapping wavenumber interval."
+    elif required > limit:
+        reason = f"Required extrapolation {required:.6g} exceeds limit {limit:.6g} cm⁻¹."
+    else:
+        reason = "Compatible with endpoint extrapolation" if required else "Full coverage"
+    compatible = overlap_low < overlap_high and required <= limit
+    file_rows = []
+    common_low = max((r["minimum"] for r in effective.values()), default=external["minimum"])
+    common_high = min((r["maximum"] for r in effective.values()), default=external["maximum"])
+    for name, row in effective.items():
+        original = native.get(name, row)
+        file_rows.append({
+            "File Name": name,
+            "Native minimum": original["minimum"], "Native maximum": original["maximum"],
+            "Native points": original["points"],
+            "Native median spacing": original["median spacing"],
+            "Native direction": original["direction"],
+            "Effective minimum": row["minimum"], "Effective maximum": row["maximum"],
+            "Limits common lower bound": row["minimum"] == common_low,
+            "Limits common upper bound": row["maximum"] == common_high,
+        })
+    metadata = {
+        "Model minimum (cm⁻¹)": model["minimum"], "Model maximum (cm⁻¹)": model["maximum"],
+        "Model grid points": model["points"], "Model grid direction": model["direction"],
+        "Model median spacing (cm⁻¹)": model["median spacing"],
+        "Aligned minimum (cm⁻¹)": external["minimum"],
+        "Aligned maximum (cm⁻¹)": external["maximum"],
+        "Aligned grid points": external["points"],
+        "Aligned grid direction": external["direction"],
+        "Aligned median spacing (cm⁻¹)": external["median spacing"],
+        "Common measured minimum after crop (cm⁻¹)": common_low,
+        "Common measured maximum after crop (cm⁻¹)": common_high,
+        "Suggested overlap minimum (cm⁻¹)": overlap_low if overlap_low < overlap_high else None,
+        "Suggested overlap maximum (cm⁻¹)": overlap_high if overlap_low < overlap_high else None,
+        "Lower endpoint gap (cm⁻¹)": lower, "Upper endpoint gap (cm⁻¹)": upper,
+        "Required extrapolation (cm⁻¹)": required,
+        "Endpoint extrapolation mode": mode,
+        "Automatic extrapolation limit (cm⁻¹)": automatic_limit if mode == "Automatic" else None,
+        "Maximum endpoint extrapolation (cm⁻¹)": tolerance,
+        "Extrapolated model points": missing,
+        "Extrapolated model points (%)": 100 * missing / len(model_axis),
+        "Model-grid interpolation needed": not np.array_equal(model_axis, aligned_axis),
+        "Extrapolation method": "Linear" if missing else "None",
+        "Spectral range compatible": compatible, "Compatibility reason": reason,
+    }
+    signature = hashlib.sha256(json.dumps(
+        [metadata, file_rows, model_axis.tolist(), aligned_axis.tolist()],
+        sort_keys=True, allow_nan=False,
+    ).encode()).hexdigest()
+    return {
+        "metadata": metadata, "files": file_rows, "compatible": compatible,
+        "requires_confirmation": required > 0.25, "tolerance": tolerance,
+        "signature": signature, "reason": reason,
+        "model_axis": model_axis, "aligned_axis": aligned_axis,
+    }
+
+
+class PredictionCompatibilityError(ValueError):
+    def __init__(self, report, message):
+        self.report = report
+        super().__init__(message)
 
 
 def predict_external_dataset(
@@ -556,6 +668,11 @@ def predict_opus_directory(
     opus_axis_mode: str | None = None,
     crop_min_cm1: float | None = None,
     crop_max_cm1: float | None = None,
+    extrapolation_mode: str = "Manual",
+    automatic_limit_cm1: float = 10.0,
+    inspect_only: bool = False,
+    require_confirmation: bool = False,
+    confirmed_signature: str | None = None,
 ) -> dict:
     bundle = load_model_bundle(model_path)
     saved_axis_mode = bundle.get("opus_axis_mode", OPUS_LEGACY)
@@ -567,6 +684,7 @@ def predict_opus_directory(
         if reference is not None
         else None
     )
+    coverage = {}
     spectra, raw_wavenumbers, cache_stats = (
         load_external_opus_library(
             spectra_dir,
@@ -575,8 +693,26 @@ def predict_opus_directory(
             opus_axis_mode=axis_mode,
             crop_min_cm1=crop_min_cm1,
             crop_max_cm1=crop_max_cm1,
+            coverage=coverage,
         )
     )
+    compatibility = spectral_compatibility(
+        bundle["wavenumbers"], raw_wavenumbers, coverage,
+        mode=extrapolation_mode, manual_tolerance=max_extrapolation_cm1,
+        automatic_limit=automatic_limit_cm1,
+    )
+    if inspect_only:
+        return {"compatibility": compatibility}
+    if not compatibility["compatible"]:
+        raise PredictionCompatibilityError(compatibility, compatibility["reason"])
+    confirmed = confirmed_signature == compatibility["signature"]
+    if (extrapolation_mode == "Automatic" or require_confirmation) and (
+        compatibility["requires_confirmation"] and not confirmed
+    ):
+        raise PredictionCompatibilityError(
+            compatibility, "Review and confirm the calculated endpoint extrapolation."
+        )
+    max_extrapolation_cm1 = compatibility["tolerance"]
     replicate, sample, metrics = (
         predict_external_dataset(
             bundle,
@@ -595,7 +731,11 @@ def predict_opus_directory(
         "metrics": metrics,
         "cache_stats": cache_stats,
         "raw_wavenumbers": raw_wavenumbers,
+        "compatibility": compatibility,
         "input_metadata": {
+            **compatibility["metadata"],
+            "Endpoint extrapolation confirmed": confirmed
+            if compatibility["requires_confirmation"] else "Not required",
             "Model OPUS axis mode": saved_axis_mode,
             "Prediction OPUS axis mode": axis_mode,
             "Crop minimum (cm⁻¹)": crop_min_cm1,
@@ -618,6 +758,7 @@ def save_prediction_results(
     reference_sheet: str,
     *,
     input_metadata: dict | None = None,
+    compatibility: dict | None = None,
 ) -> Path:
     """Save predictions and model metadata using the authoritative script layout."""
     output_path = Path(output_path).expanduser()
@@ -717,5 +858,13 @@ def save_prediction_results(
             sheet_name="Model Info",
             index=False,
         )
+        if compatibility is not None:
+            pd.DataFrame(compatibility["files"]).to_excel(
+                writer, sheet_name="Spectral Coverage", index=False
+            )
+            pd.DataFrame({
+                "Model wavenumber (cm⁻¹)": pd.Series(compatibility["model_axis"]),
+                "Aligned external wavenumber (cm⁻¹)": pd.Series(compatibility["aligned_axis"]),
+            }).to_excel(writer, sheet_name="Wavenumber Grid", index=False)
 
     return output_path

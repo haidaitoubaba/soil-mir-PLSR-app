@@ -31,3 +31,15 @@ implementation is not asserted to reproduce OPUS Quick Compare.
 - Optional review reasons throughout; shared editable decision tables in sample and export views.
 - Export original OPUS copies by saved review decision, with verified hashes, separate decision
   subfolders, CSV index and export settings; never changes original files or freezes selection.
+
+## RC5 review clarity and undo
+
+- Clarify read-only USDA-style pair membership and explicitly label unreviewed files.
+- Clear all saved review decisions with confirmation and undo up to 20 saved transactions
+  within the same QC session and criteria. Original spectra and saved exports are unchanged.
+
+- Default UI: Routine QC / USDA-style reference acceptance; all-pairwise remains selectable.
+- Conservative and best-pair screening, sample-level rescan lists, explicit policy metadata.
+
+- Predict: automatic compatibility checks and endpoint tolerance (default 10 cm^-1 guardrail),
+  explicit approval beyond 0.25 cm^-1, manual mode, per-file coverage and grid audit exports.

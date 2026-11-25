@@ -222,3 +222,139 @@ def test_invalid_review_keep_rejected():
     for name in ("a.0", "b.0"):
         with pytest.raises(ValueError, match="Cannot Keep"):
             apply_review_edits(frame, {}, [{"File Name": name, "Manual decision": "Keep"}])
+
+
+def test_review_history_clear_and_undo():
+    from soil_mir.services.qc_manifest import review_history_push, review_history_undo
+
+    original = {"a.0": {"decision": "Keep", "reason": "checked", "source": "Manual"}}
+    batch = {**original, "b.0": {
+        "decision": "Rescan required", "reason": "suspected",
+        "source": "Applied recommendation",
+    }}
+    history = review_history_push(original, batch, [])
+    assert review_history_push(batch, batch, history) is history
+    history = review_history_push(batch, {}, history)
+    restored, history = review_history_undo({}, history)
+    assert restored == batch
+    restored, history = review_history_undo(restored, history)
+    assert restored == original
+    assert not history
+    restored, history = review_history_undo(restored, history)
+    assert restored == original
+    assert not history
+
+
+def test_review_history_is_bounded_and_isolated():
+    from soil_mir.services.qc_manifest import review_history_push, review_history_undo
+
+    history = []
+    current = {}
+    for i in range(25):
+        updated = {"a.0": {"decision": "Keep", "reason": str(i)}}
+        history = review_history_push(current, updated, history)
+        current = updated
+    assert len(history) == 20
+    restored, remaining = review_history_undo(current, history)
+    assert restored["a.0"]["reason"] == "23"
+    restored["a.0"]["reason"] = "changed"
+    assert history[-1]["a.0"]["reason"] == "23"
+    assert len(remaining) == 19
+
+
+def test_unreviewed_source_and_pending_recommendation(tmp_path, monkeypatch):
+    from soil_mir.services.qc_manifest import decision_export_rows
+
+    names = [f"S1_{i}.0" for i in (1, 2, 3)]
+    for name in names:
+        (tmp_path / name).write_bytes(name.encode())
+    axis = np.linspace(600, 4000, 341)
+    raw = {name: (2 + np.sin(axis / 100 + i), axis) for i, name in enumerate(names)}
+    monkeypatch.setattr(
+        spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
+    )
+    batch = spectral_qc.prepare_batch(tmp_path)
+    decisions = {
+        name: {"decision": "Pending review", "source": "Manual", "reason": ""}
+        for name in names[:2]
+    }
+    tables = spectral_qc.evaluate_batch(batch, Criteria(), decisions)
+    assert spectral_qc.recommended_reviews(tables, decisions) == decisions
+    assert tables["Review decisions"]["Decision source"].tolist() == [
+        "Manual", "Manual", "Not reviewed",
+    ]
+    assert [r["Decision source"] for r in decision_export_rows(
+        tables["File QC"], decisions, ["Pending review"]
+    )] == ["Manual", "Manual", "Not reviewed"]
+    assert tables["Pairwise QC"]["Reference comparison"].tolist() == [True, True, False]
+
+
+@pytest.mark.parametrize("method,expected_status", [
+    ("USDA-style", "Pass"), ("All-pairwise", "Fail"),
+])
+def test_routine_policy_reference_disagreement(method, expected_status):
+    from soil_mir.qc import Scan, policy_decisions
+
+    scans = [Scan(f"r{i}", "S", i) for i in (1, 2, 3)]
+    edges = [("r1", "r2", "Pass"), ("r1", "r3", "Pass"), ("r2", "r3", "Fail")]
+    criteria = Criteria(decision_strategy="Routine QC", comparison_method=method)
+    status, passed, count, decisions, _ = policy_decisions(scans, [], edges, criteria)
+    assert status == expected_status
+    assert passed == 2 and count == (2 if method == "USDA-style" else 3)
+    assert set(decisions.values()) == {"Keep" if status == "Pass" else "Rescan required"}
+
+
+@pytest.mark.parametrize("states,expected_choice", [
+    (("Pass", "Pass", "Pass"), "Keep"),
+    (("Pass", "Review", "Pass"), "Rescan required"),
+    (("Pass", "Fail", "Fail"), "Rescan required"),
+    (("Fail", "Fail", "Fail"), "Rescan required"),
+    (("Pass", "Invalid", "Pass"), "Pending review"),
+])
+def test_routine_whole_sample(states, expected_choice):
+    from soil_mir.qc import Scan, policy_decisions
+
+    scans = [Scan(f"r{i}", "S", i) for i in (1, 2, 3)]
+    edges = [(a, b, status) for (a, b), status in zip(
+        [("r1", "r2"), ("r1", "r3"), ("r2", "r3")], states
+    )]
+    criteria = Criteria(decision_strategy="Routine QC", comparison_method="USDA-style")
+    assert set(policy_decisions(scans, [], edges, criteria)[3].values()) == {expected_choice}
+
+
+def test_best_passing_pair_and_tie():
+    from soil_mir.qc import Scan, policy_decisions
+
+    a, b, c = [Scan(f"r{i}", "S", i) for i in (1, 2, 3)]
+    edges = [("r1", "r2", "Pass"), ("r1", "r3", "Pass"), ("r2", "r3", "Fail")]
+    criteria = Criteria(decision_strategy="Best passing pair")
+    entries = [(a, b, {"r": .999, "nrmse": 2}, ""),
+               (a, c, {"r": .998, "nrmse": 1}, ""), (b, c, None, "")]
+    assert policy_decisions([a, b, c], entries, edges, criteria)[3] == {
+        "r1": "Keep", "r2": "Keep", "r3": "Rescan required",
+    }
+    entries[1] = (a, c, {"r": .999, "nrmse": 2}, "")
+    assert set(policy_decisions([a, b, c], entries, edges, criteria)[3].values()) == {
+        "Pending review"
+    }
+
+
+def test_routine_report_and_manifest(tmp_path, monkeypatch):
+    names = [f"S1_{i}.0" for i in (1, 2, 3)]
+    for name in names:
+        (tmp_path / name).write_bytes(name.encode())
+    axis = np.linspace(600, 4000, 341)
+    raw = {name: (2 + np.sin(axis / 100 + i), axis) for i, name in enumerate(names)}
+    monkeypatch.setattr(
+        spectral_qc, "load_opus_spectra_cached", lambda *args, **kwargs: (raw, None)
+    )
+    batch = spectral_qc.prepare_batch(tmp_path)
+    criteria = Criteria(decision_strategy="Routine QC", comparison_method="USDA-style")
+    tables = spectral_qc.evaluate_batch(batch, criteria)
+    decisions = spectral_qc.recommended_reviews(tables, {})
+    assert set(d["decision"] for d in decisions.values()) == {"Rescan required"}
+    tables = spectral_qc.evaluate_batch(batch, criteria, decisions)
+    assert tables["Sample Rescan List"]["Confirmed scope"].tolist() == ["Entire sample"]
+    payload = build_manifest(batch, criteria, tables, decisions)
+    assert payload["criteria"]["comparison_method"] == "USDA-style"
+    assert payload["criteria"]["decision_strategy"] == "Routine QC"

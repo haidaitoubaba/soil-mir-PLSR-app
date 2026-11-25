@@ -26,6 +26,7 @@ from soil_mir.services.local_paths import (
     open_local_folder,
 )
 from soil_mir.services.prediction import (
+    PredictionCompatibilityError,
     predict_opus_directory,
     save_prediction_results,
 )
@@ -361,19 +362,55 @@ if crop_enabled:
         "Crop maximum (cm⁻¹)", min_value=0.0, value=None, step=0.01, format="%.4f"
     )
 
-max_extrapolation = st.number_input(
-    "Maximum endpoint extrapolation (cm⁻¹)",
-    min_value=0.0,
-    value=0.25,
-    step=0.05,
-    format="%.2f",
-    help="The limit is measured from the aligned spectrum endpoints after any crop.",
+extrapolation_mode = st.radio(
+    "Endpoint extrapolation mode", ["Automatic", "Manual"], horizontal=True
 )
-
-if st.button(
-    "Run prediction",
-    type="primary",
-):
+max_extrapolation = 0.25
+automatic_limit = 10.0
+if extrapolation_mode == "Automatic":
+    automatic_limit = st.number_input(
+        "Automatic extrapolation safety limit (cm⁻¹)", min_value=0.0,
+        value=10.0, step=0.25, format="%.2f",
+    )
+    st.caption("Software guardrail, not a scientifically validated safe limit.")
+else:
+    max_extrapolation = st.number_input(
+        "Maximum endpoint extrapolation (cm⁻¹)", min_value=0.0,
+        value=0.25, step=0.05, format="%.2f",
+    )
+config = (
+    model_path, spectra_dir, output_dir, mode,
+    st.session_state.get("soil_mir_predict_reference_input") if mode == "External validation"
+    else None, reference_sheet, axis_mode, crop_min, crop_max,
+    extrapolation_mode, max_extrapolation, automatic_limit,
+)
+preview = st.session_state.get("soil_mir_prediction_compatibility")
+report = preview["report"] if preview and preview["config"] == config else None
+confirmed_signature = None
+st.subheader("Spectral compatibility check")
+st.caption(
+    "Checks actual aligned coverage against the saved model grid. "
+    "Interpolation does not correct instrument transfer bias."
+)
+if report:
+    meta = report["metadata"]
+    st.dataframe(pd.DataFrame(list(meta.items()), columns=["Check", "Value"]), hide_index=True)
+    with st.expander("Per-file native coverage and limiting files"):
+        st.dataframe(pd.DataFrame(report["files"]), hide_index=True)
+    if report["compatible"]:
+        st.success(report["reason"])
+        if report["requires_confirmation"]:
+            st.warning("Extrapolation exceeds 0.25 cm⁻¹. Validate the impact on predictions.")
+            if st.checkbox(
+                "Confirm calculated endpoint extrapolation",
+                key=f"predict_confirm_{report['signature']}",
+            ):
+                confirmed_signature = report["signature"]
+    else:
+        st.error(report["reason"] + " Review ranges or retrain on shared coverage.")
+check = st.button("Check spectral compatibility")
+run = st.button("Run prediction", type="primary")
+if check or run:
     if not model_path or not spectra_dir or not output_dir:
         st.error(
             "Select a model, external spectra folder, "
@@ -431,7 +468,17 @@ if st.button(
                     opus_axis_mode=axis_mode,
                     crop_min_cm1=crop_min,
                     crop_max_cm1=crop_max,
+                    extrapolation_mode=extrapolation_mode,
+                    automatic_limit_cm1=automatic_limit,
+                    inspect_only=check,
+                    require_confirmation=True,
+                    confirmed_signature=confirmed_signature,
                 )
+                st.session_state.soil_mir_prediction_compatibility = {
+                    "config": config, "report": result["compatibility"],
+                }
+                if check:
+                    st.rerun()
 
                 bundle = result["bundle"]
                 property_name = str(
@@ -466,6 +513,7 @@ if st.button(
                         else ""
                     ),
                     input_metadata=result["input_metadata"],
+                    compatibility=result["compatibility"],
                 )
                 result["workbook_path"] = (
                     workbook_path
@@ -475,7 +523,7 @@ if st.button(
                     reference_sheet
                 )
                 result["max_extrapolation_cm1"] = (
-                    float(max_extrapolation)
+                    result["compatibility"]["tolerance"]
                 )
                 st.session_state[
                     "soil_mir_prediction_result"
@@ -485,6 +533,11 @@ if st.button(
                     state="complete",
                     expanded=False,
                 )
+        except PredictionCompatibilityError as exc:
+            st.session_state.soil_mir_prediction_compatibility = {
+                "config": config, "report": exc.report,
+            }
+            st.rerun()
         except Exception as exc:
             st.error("Prediction failed.")
             st.exception(exc)
