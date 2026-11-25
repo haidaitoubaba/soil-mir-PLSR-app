@@ -67,7 +67,10 @@ def remember_widget(container, kind, label, *, key, **kwargs):
                 value = valid_choice(value, options)
         if widget not in state or state[widget] != value:
             state[widget] = value
-    result = getattr(container, kind)(label, key=widget, **kwargs)
+    def commit_value():
+        state[saved] = deepcopy(state[widget])
+
+    result = getattr(container, kind)(label, key=widget, on_change=commit_value, **kwargs)
     state[saved] = deepcopy(result)
     return result
 
