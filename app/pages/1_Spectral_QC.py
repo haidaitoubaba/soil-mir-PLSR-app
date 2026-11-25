@@ -11,6 +11,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
+from soil_mir.ui_navigation import tile_button
+from soil_mir.ui_qc_source import (
+    applied_directory, canonical_directory, choose_source, completed_batch, effective_directory,
+    guard_source, invalidate_source, source_mode,
+)
 from soil_mir.ui_state import remember_widget, request_section, reset_remembered, section_navigation
 
 from soil_mir.io.opus import list_opus_files
@@ -99,15 +104,42 @@ if section == "Setup":
     # An invalid draft must not leave a previously valid setup masquerading as current.
     st.session_state.pop("rc6_qc_setup", None)
 
-    a, b = st.columns([5, 1])
-    if b.button("Browse", key="qc_browse"):
-        try:
-            chosen = choose_local_path("directory", prompt="Choose OPUS spectral QC folder")
-            if chosen:
-                reset_remembered("qc_dir", str(chosen))
-        except RuntimeError as exc:
-            st.warning(str(exc))
-    directory = remember_widget(a, "text_input", "OPUS spectra directory", key="qc_dir")
+    state = st.session_state
+    st.subheader("Spectral data source")
+    a, b = st.columns(2)
+    mode = source_mode(state)
+    tile_button(a, "Linked to Data", "link", key="rc7_qc_linked",
+                selected=mode == "linked", on_click=choose_source, args=(state, "linked"))
+    tile_button(b, "Independent", "folder_open", key="rc7_qc_independent",
+                selected=mode == "independent", on_click=choose_source, args=(state, "independent"))
+    if mode == "linked":
+        directory = applied_directory(state)
+        st.text_input("OPUS spectra directory (linked)", value=directory, disabled=True)
+        st.caption("Linked to Data — using the inspected OPUS spectra directory.")
+        if not directory or not Path(directory).is_dir():
+            invalidate_source(state, "The linked Data directory is unavailable.")
+            st.warning("The linked Data directory is unavailable. Re-inspect Data or "
+                       "select an independent directory.")
+            st.stop()
+    else:
+        if not applied_directory(state):
+            st.caption("Inspect Data to link a directory, or use independent QC without reference data.")
+        a, b = st.columns([5, 1])
+        if b.button("Browse", key="qc_browse"):
+            try:
+                chosen = choose_local_path("directory", prompt="Choose OPUS spectral QC folder")
+                if chosen:
+                    reset_remembered("qc_dir", str(chosen))
+                    state.rc7_qc_source_mode = "independent"
+            except RuntimeError as exc:
+                st.warning(str(exc))
+        directory = remember_widget(a, "text_input", "OPUS spectra directory", key="qc_dir")
+        if directory.strip():
+            state.rc7_qc_source_mode = "independent"
+        st.caption("Independent QC dataset — changes here do not affect Data.")
+    stale = guard_source(state, directory)
+    if stale:
+        st.warning(f"{stale} Run QC again before reviewing, exporting or freezing.")
     if directory.strip() and not st.session_state.get("rc6_value_qc_output"):
         reset_remembered("qc_output", str(Path(directory).expanduser().parent / "Spectral_QC"))
     output = remember_widget(st, "text_input", "QC output directory", key="qc_output")
@@ -269,6 +301,7 @@ if section == "Setup":
                 "Files": "; ".join(scan.filename for scan in scans),
             })
     except (OSError, ValueError) as exc:
+        invalidate_source(st.session_state, "The spectral source is unavailable.")
         st.error(str(exc))
         st.stop()
     except Exception as exc:
@@ -281,6 +314,9 @@ if section == "Setup":
         st.warning(f"{len(unmatched)} unmatched files; these will not be treated as passing.")
         with st.expander("Unmatched files"):
             st.dataframe(pd.DataFrame({"File Name": unmatched}), hide_index=True)
+    previous_config = st.session_state.get("qc_config")
+    if previous_config and previous_config[1] != inventory:
+        invalidate_source(st.session_state, "Input files have changed.")
     config = (directory, inventory, pattern, batch_label, expected, lower, upper,
               exclude_co2, regions, mapping, range_mode)
     st.session_state.rc6_qc_setup = (config, criteria, output)
@@ -294,6 +330,9 @@ if section == "Setup":
                 progress=lambda fraction, message: progress.progress(fraction, text=message),
                 mapping=mapping, range_mode=range_mode,
             )
+            if data.inventory != inventory or file_inventory(directory) != inventory:
+                raise ValueError("Input files changed during QC. Run QC again.")
+            completed_batch(st.session_state)
             st.session_state.qc_data = data
             st.session_state.qc_config = config
             st.session_state.qc_reviews = {}
@@ -309,6 +348,23 @@ if section == "Setup":
             st.error(f"QC failed: {exc}")
 
 else:
+    state = st.session_state
+    current_directory = effective_directory(state)
+    stale = guard_source(state, current_directory)
+    if source_mode(state) == "linked" and (
+            not current_directory or not Path(current_directory).is_dir()):
+        invalidate_source(state, "The linked Data directory is unavailable.")
+        stale = "The linked Data directory is unavailable."
+    if stale:
+        st.warning(f"{stale} Previous QC results are not current. Run QC again in Setup.")
+        previous = state.get("qc_config")
+        if previous:
+            st.caption(f"Previous source: {previous[0]}")
+        st.caption(f"Current source: {current_directory or 'Not selected'}")
+        if st.button("Go to Setup"):
+            request_section("qc", "Setup")
+            st.rerun()
+        st.stop()
     context = st.session_state.get("rc6_qc_setup")
     if context is None:
         st.info("Complete Setup and run QC first.")
@@ -316,12 +372,16 @@ else:
     config, criteria, output = context
     directory, inventory, _, batch_label, expected, *_ = config
     try:
+        if canonical_directory(directory) != canonical_directory(current_directory):
+            invalidate_source(state, "The spectral source changed.")
+            st.warning("The spectral source changed. Return to Setup and run QC again.")
+            st.stop()
         if file_inventory(directory) != inventory:
-            st.session_state.pop("qc_frozen", None)
+            invalidate_source(state, "Input files have changed.")
             st.warning("Input files have changed. Return to Setup and run QC again.")
             st.stop()
     except (OSError, ValueError) as exc:
-        st.session_state.pop("qc_frozen", None)
+        invalidate_source(state, "The spectral source is unavailable.")
         st.error(str(exc))
         st.stop()
 strategy = criteria.decision_strategy
@@ -330,7 +390,7 @@ if "qc_data" not in st.session_state:
     if section != "Setup":
         st.info("Run QC in Setup to populate this section.")
     st.stop()
-if st.session_state.get("qc_config") != config:
+if st.session_state.get("rc7_qc_stale_reason") or st.session_state.get("qc_config") != config:
     st.session_state.pop("qc_frozen", None)
     st.warning("Inputs or files have changed. Run QC again to refresh metrics.")
     st.stop()
