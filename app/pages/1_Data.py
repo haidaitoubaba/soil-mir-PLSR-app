@@ -25,11 +25,6 @@ from soil_mir.services.local_paths import (
     save_path_preferences,
 )
 
-st.set_page_config(
-    page_title="Data | Soil MIR PLSR",
-    page_icon="🌱",
-    layout="wide",
-)
 st.title("Data")
 st.caption(
     "Inspect local spectra and reference data before modelling."

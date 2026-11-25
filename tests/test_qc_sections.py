@@ -4,6 +4,7 @@ import numpy as np
 from streamlit.testing.v1 import AppTest
 
 from soil_mir.services import spectral_qc
+from soil_mir.ui_navigation import section_key
 
 
 PAGE = Path(__file__).resolve().parents[1] / "app" / "pages" / "1_Spectral_QC.py"
@@ -14,7 +15,7 @@ def button(app, label):
 
 
 def section(app, value):
-    app.radio(key="_rc6_section_qc").set_value(value).run()
+    app.button(key=section_key("qc", value)).click().run()
     assert not app.exception
 
 
@@ -44,7 +45,7 @@ def test_qc_sections_keep_batch_review_and_filter(tmp_path, monkeypatch):
     assert not app.exception
     button(app, "Run QC").click().run()
     assert not app.exception
-    assert app.radio(key="_rc6_section_qc").value == "Overview"
+    assert app.session_state["rc6_section_qc"] == "Overview"
     assert len(reads) == len(evaluations) == 1
 
     section(app, "Review")
@@ -55,7 +56,7 @@ def test_qc_sections_keep_batch_review_and_filter(tmp_path, monkeypatch):
     section(app, "Diagnostics")
     app.radio(key="_rc6_value_qc_comparison_view").set_value("Disagreements").run()
     assert not app.exception
-    assert app.radio(key="_rc6_section_qc").value == "Diagnostics"
+    assert app.session_state["rc6_section_qc"] == "Diagnostics"
     assert len(app.session_state["qc_reviews"]) == 3
     section(app, "Export")
     section(app, "Calibration")

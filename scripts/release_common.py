@@ -12,12 +12,14 @@ PROJECT_FILE = ROOT / "pyproject.toml"
 PACKAGE_INIT = ROOT / "src" / "soil_mir" / "__init__.py"
 CORE_REQUIRED_FILES = (
     ROOT / "app" / "Home.py",
+    ROOT / ".streamlit" / "config.toml",
     PROJECT_FILE,
     PACKAGE_INIT,
     ROOT / "scripts" / "launch_app.py",
 )
 CORE_INCLUDE_ENTRIES = (
     ROOT / "app",
+    ROOT / ".streamlit" / "config.toml",
     ROOT / "src",
     PROJECT_FILE,
     ROOT / "README.md",

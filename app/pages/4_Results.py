@@ -35,11 +35,6 @@ from soil_mir.services.refit import (
     refit_saved_run_tolerance,
 )
 
-st.set_page_config(
-    page_title="Results | Soil MIR PLSR",
-    page_icon="🌱",
-    layout="wide",
-)
 st.title("Results")
 st.caption(
     "Outer validation results and final all-data model selection."

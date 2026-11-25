@@ -30,11 +30,6 @@ from soil_mir.services.profiles import (
     save_profile,
 )
 
-st.set_page_config(
-    page_title="Configure | Soil MIR PLSR",
-    page_icon="🌱",
-    layout="wide",
-)
 st.title("Configuration")
 st.caption(
     "Choose modelling and validation settings. "

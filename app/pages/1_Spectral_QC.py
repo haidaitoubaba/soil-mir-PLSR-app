@@ -87,7 +87,6 @@ def review_editor(frame, key, file_table):
             save_review_edits(edited.to_dict("records"), file_table)
 
 
-st.set_page_config(page_title="Spectral QC", page_icon="🔬", layout="wide")
 st.title("Spectral QC")
 st.caption("Standalone OPUS replicate consistency checks. No reference values required.")
 st.info(
