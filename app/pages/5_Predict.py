@@ -29,11 +29,6 @@ from soil_mir.services.prediction import (
     save_prediction_results,
 )
 
-st.set_page_config(
-    page_title="Predict | Soil MIR PLSR",
-    page_icon="🌱",
-    layout="wide",
-)
 st.title("Predict")
 st.caption(
     "Apply a saved final model to external local OPUS spectra."

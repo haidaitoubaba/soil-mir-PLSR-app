@@ -47,6 +47,7 @@ def test_mac_release_bundle_preserves_launcher_permission_after_extract(tmp_path
         bundle_root = roots.pop()
 
         assert f"{bundle_root}/app/Home.py" in names
+        assert f"{bundle_root}/.streamlit/config.toml" in names
         assert f"{bundle_root}/run_app.command" in names
         assert f"{bundle_root}/scripts/launch_app.py" in names
         assert f"{bundle_root}/MAC_RELEASE_README.txt" in names
@@ -128,6 +129,7 @@ def test_windows_release_bundle_contains_cross_platform_launcher(tmp_path: Path)
         bundle_root = roots.pop()
 
         assert f"{bundle_root}/app/Home.py" in names
+        assert f"{bundle_root}/.streamlit/config.toml" in names
         assert f"{bundle_root}/run_app.bat" in names
         assert f"{bundle_root}/run_app.ps1" in names
         assert f"{bundle_root}/scripts/launch_app.py" in names

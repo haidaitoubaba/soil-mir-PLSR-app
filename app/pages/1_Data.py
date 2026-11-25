@@ -7,6 +7,7 @@ import streamlit as st
 
 from soil_mir.config import ColumnConfig
 from soil_mir.io.opus import inspect_opus_directory, list_opus_files
+from soil_mir.ui_qc_source import record_data_inspection
 from soil_mir.ui_state import remember_widget, request_section, reset_remembered, section_navigation
 from soil_mir.io.reference import (
     discover_property_sheets,
@@ -25,11 +26,6 @@ from soil_mir.services.local_paths import (
     save_path_preferences,
 )
 
-st.set_page_config(
-    page_title="Data | Soil MIR PLSR",
-    page_icon="🌱",
-    layout="wide",
-)
 st.title("Data")
 st.caption(
     "Inspect local spectra and reference data before modelling."
@@ -300,6 +296,7 @@ if section == "Input Data":
                     "Data inspection succeeded, but the last-used paths "
                     f"could not be saved: {exc}"
                 )
+            record_data_inspection(st.session_state, identity[0])
             st.session_state.rc6_data_inspected_identity = identity
             st.session_state.rc6_data_applied_paths = (spectra_text, reference_text, output_text)
             request_section("data", "Data Overview")

@@ -1,9 +1,13 @@
 from streamlit.testing.v1 import AppTest
 
 from soil_mir.ui_state import SECTIONS, valid_choice
+from soil_mir.ui_navigation import ICONS, PAGES, section_key
 
 
 def test_rc6_navigation_inventory():
+    assert len(PAGES) == 8
+    assert [p[0] for p in PAGES] == ["home", *SECTIONS]
+    assert all(s in ICONS for sections in SECTIONS.values() for s in sections)
     assert len(SECTIONS) == 7
     assert sum(map(len, SECTIONS.values())) == 31
     assert all(len(set(sections)) == len(sections) for sections in SECTIONS.values())
@@ -29,9 +33,9 @@ else:
     app.run()
     assert not app.exception
     app.text_input[0].set_value("/example/spectra").run()
-    app.radio[0].set_value("Data Overview").run()
+    app.button(key=section_key("data", "Data Overview")).click().run()
     assert len(app.text_input) == 0
-    app.radio[0].set_value("Input Data").run()
+    app.button(key=section_key("data", "Input Data")).click().run()
     assert not app.exception
     assert app.text_input[0].value == "/example/spectra"
 
@@ -46,6 +50,6 @@ if st.button("Run QC"):
     st.rerun()
 """)
     app.run()
-    app.button[0].click().run()
+    next(b for b in app.button if b.label == "Run QC").click().run()
     assert not app.exception
-    assert app.radio[0].value == "Overview"
+    assert app.session_state["rc6_section_qc"] == "Overview"

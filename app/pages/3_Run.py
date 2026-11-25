@@ -29,11 +29,6 @@ from soil_mir.services.run_control import (
 )
 
 
-st.set_page_config(
-    page_title="Run | Soil MIR PLSR",
-    page_icon="🌱",
-    layout="wide",
-)
 st.title("Run")
 st.caption(
     "Preflight first, then nested model selection and outer validation."

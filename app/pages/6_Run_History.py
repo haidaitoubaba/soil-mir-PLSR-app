@@ -29,11 +29,6 @@ from soil_mir.services.history import (
 )
 
 
-st.set_page_config(
-    page_title="Run History | Soil MIR PLSR",
-    page_icon="🌱",
-    layout="wide",
-)
 st.title("Run History")
 st.caption(
     "Inspect completed and interrupted analyses saved in the local results directory."

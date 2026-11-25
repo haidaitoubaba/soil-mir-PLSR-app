@@ -3,6 +3,8 @@ from copy import deepcopy
 
 import streamlit as st
 
+from soil_mir.ui_navigation import ICONS, section_key, tile_button
+
 
 SECTIONS = {
     "data": ("Input Data", "Data Overview", "Data Acceptance"),
@@ -35,17 +37,20 @@ def section_navigation(page):
     """Only callers' selected section should be rendered; preserve on return."""
     options = SECTIONS[page]
     saved = f"rc6_section_{page}"
-    widget = f"_rc6_section_{page}"
     requested = st.session_state.pop(f"rc6_requested_section_{page}", None)
-    if requested is not None or widget not in st.session_state:
-        st.session_state[widget] = valid_choice(
-            requested if requested is not None else st.session_state.get(saved), options
-        )
-    section = st.radio(
-        "Section", options, key=widget, horizontal=True, label_visibility="collapsed"
+    current = valid_choice(
+        requested if requested is not None else st.session_state.get(saved), options
     )
-    st.session_state[saved] = section
-    return section
+    st.session_state[saved] = current
+
+    def select(value):
+        st.session_state[saved] = value
+
+    for col, value in zip(st.columns(len(options)), options):
+        tile_button(col, value, ICONS[value], key=section_key(page, value),
+                    selected=value == current, on_click=select, args=(value,))
+    st.divider()
+    return current
 
 
 def remember_widget(container, kind, label, *, key, **kwargs):
