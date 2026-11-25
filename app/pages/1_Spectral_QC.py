@@ -109,15 +109,16 @@ if section == "Setup":
         except RuntimeError as exc:
             st.warning(str(exc))
     directory = remember_widget(a, "text_input", "OPUS spectra directory", key="qc_dir")
-    output = remember_widget(st, "text_input", "QC output directory", key="qc_output",
-                             value=str(Path(directory).expanduser().parent / "Spectral_QC")
-                             if directory.strip() else "")
+    if directory.strip() and not st.session_state.get("rc6_value_qc_output"):
+        reset_remembered("qc_output", str(Path(directory).expanduser().parent / "Spectral_QC"))
+    output = remember_widget(st, "text_input", "QC output directory", key="qc_output")
     batch_label = remember_widget(st, "text_input", "Lab / instrument / batch label (optional)",
                                   key="qc_batch_label")
     mapping = None
     with st.expander("Advanced: optional identity mapping"):
+        epoch = st.session_state.get("qc_mapping_epoch", 0)
         upload = st.file_uploader("CSV / Excel mapping", type=["csv", "xlsx"],
-                                  key=f"qc_mapping_upload_{st.session_state.get('qc_mapping_epoch', 0)}")
+                                  key=f"qc_mapping_upload_{epoch}")
         if upload is not None:
             st.session_state.rc6_qc_mapping = (upload.name, upload.getvalue())
         saved_mapping = st.session_state.get("rc6_qc_mapping")
@@ -227,8 +228,10 @@ if section == "Setup":
     regional_limits = {}
     if mode == "Advanced":
         a, b = st.columns(2)
-        nrmse_pass = remember_widget(a, "number_input", "NRMSE pass limit (%)", value=2., key="qc_nrmse_pass")
-        nrmse_fail = remember_widget(b, "number_input", "NRMSE fail limit (%)", value=5., key="qc_nrmse_fail")
+        nrmse_pass = remember_widget(a, "number_input", "NRMSE pass limit (%)",
+                                     value=2., key="qc_nrmse_pass")
+        nrmse_fail = remember_widget(b, "number_input", "NRMSE fail limit (%)",
+                                     value=5., key="qc_nrmse_fail")
         st.warning("NRMSE limits are exploratory, not validated acceptance standards.")
         with st.expander("Optional validated regional RMSE thresholds"):
             for low, high in regions:
@@ -325,6 +328,8 @@ else:
 strategy = criteria.decision_strategy
 comparison_method = criteria.comparison_method
 if "qc_data" not in st.session_state:
+    if section != "Setup":
+        st.info("Run QC in Setup to populate this section.")
     st.stop()
 if st.session_state.get("qc_config") != config:
     st.session_state.pop("qc_frozen", None)
@@ -341,7 +346,10 @@ if st.session_state.get("qc_review_criteria") != criteria:
     st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
     st.session_state.pop("qc_frozen", None)
     st.session_state.qc_review_criteria = criteria
-    st.info("QC rule changed: cached metrics reused; review decisions require reconfirmation.")
+    st.session_state.qc_review_notice = (
+        "QC rule changed: cached metrics reused; review decisions require reconfirmation."
+    )
+    st.info(st.session_state.qc_review_notice)
 
 if section == "Setup":
     st.success("QC results are current. Open Overview or another section.")
@@ -395,7 +403,9 @@ if section == "Overview":
             )
     if int(overview["Evaluable samples"]) == 0:
         st.metric("Sample pass rate", "N/A")
-        st.warning("No complete samples could be evaluated. Inspect input errors and native ranges.")
+        st.warning(
+            "No complete samples could be evaluated. Inspect input errors and native ranges."
+        )
     else:
         a, b = st.columns(2)
         a.metric("Pass rate (all identified)", f"{overview['Sample pass rate (%)']:.2f}%")
@@ -409,7 +419,8 @@ if section == "Overview":
         filtered = summary[summary["Sample QC"].isin(statuses)]
         st.dataframe(filtered, hide_index=True)
 
-    st.write(f"Pending review: {(tables['File QC']['Manual decision'] == 'Pending review').sum()} files")
+    pending_count = (tables["File QC"]["Manual decision"] == "Pending review").sum()
+    st.write(f"Pending review: {pending_count} files")
     for col, target in zip(st.columns(3), ("Review", "Diagnostics", "Export")):
         if col.button(f"Open {target}"):
             request_section("qc", target)
@@ -528,7 +539,8 @@ elif section == "Diagnostics":
         if "SNV" in method:
             unit = "Normalized signal"
         elif "Deriv" in method:
-            unit = "Derivative (per point)" if "2nd" not in method else "Second derivative (per point²)"
+            unit = ("Derivative (per point)" if "2nd" not in method
+                    else "Second derivative (per point²)")
         else:
             unit = "Absorbance (AU)"
         fig, ax = plt.subplots()
@@ -600,7 +612,8 @@ elif section == "Review":
             else "Awaiting batch application" if row["Recommended decision"] != "Pending review"
             else row["Recommendation reason"], axis=1,
         )
-        st.dataframe(pending_files["Pending cause"].value_counts().rename("Files"), hide_index=False)
+        st.dataframe(pending_files["Pending cause"].value_counts().rename("Files"),
+                     hide_index=False)
     if strategy == "Routine QC":
         conflicts = tables["File QC"].loc[
             (tables["File QC"]["Manual decision"] != "Pending review")
@@ -646,7 +659,7 @@ elif section == "Review":
             updated, remaining = review_history_undo(st.session_state.qc_reviews, history)
             if set_review_state(updated, "Restored previous review state.", history=remaining):
                 st.rerun()
-    with st.expander("All files and unresolved inputs"):
+    with st.expander("All files and unresolved inputs", expanded=True):
         file_table = tables["File QC"]
         selected = remember_widget(
             st, "multiselect", "Filter file diagnosis", key="qc_file_filter",
@@ -654,7 +667,19 @@ elif section == "Review":
             default=["Consistent", "Suspected", "Needs review", "Invalid", "Unmatched"],
         )
         show_pending = remember_widget(st, "checkbox", "Pending decisions only", key="qc_pending")
-        display = file_table.loc[file_table["File Diagnosis"].isin(selected)]
+        decisions_filter = remember_widget(
+            st, "multiselect", "Filter saved decisions", key="qc_decision_filter",
+            options=list(DECISION_ORDER), default=list(DECISION_ORDER),
+        )
+        sample_options = sorted(file_table["Sample ID"].dropna().astype(str).unique().tolist())
+        chosen_samples = remember_widget(
+            st, "multiselect", "Filter sample IDs (empty = all)", key="qc_sample_filter",
+            options=sample_options,
+        )
+        display = file_table.loc[file_table["File Diagnosis"].isin(selected)
+                                 & file_table["Manual decision"].isin(decisions_filter)]
+        if chosen_samples:
+            display = display.loc[display["Sample ID"].isin(chosen_samples)]
         if show_pending:
             display = display.loc[display["Manual decision"] == "Pending review"]
         detailed = remember_widget(st, "checkbox", "Show detailed metrics and error messages",
@@ -722,7 +747,8 @@ elif section == "Export":
         st.caption("Recorded manual or applied-recommendation decisions. Pending is not approval.")
         review_editor(review, "export_review", tables["File QC"])
         kept = review.loc[review["Manual decision"] == "Keep"]
-        st.download_button("Export Reviewed Keep List", kept.to_csv(index=False).encode("utf-8-sig"),
+        st.download_button("Export Reviewed Keep List",
+                           kept.to_csv(index=False).encode("utf-8-sig"),
                            file_name=f"Reviewed_Keep_{timestamp}.csv", mime="text/csv")
     else:
         sample_rescans = tables["Sample Rescan List"]
@@ -777,7 +803,8 @@ elif section == "Export":
             st.warning(str(exc))
     st.subheader("Save or restore review")
     st.caption("Review snapshots are local JSON files; no spectra are uploaded.")
-    restore = st.file_uploader("Restore QC manifest for the current input and criteria", type=["json"])
+    restore = st.file_uploader("Restore QC manifest for the current input and criteria",
+                               type=["json"])
     if restore and st.button("Restore saved review"):
         try:
             payload = json.loads(restore.getvalue())
@@ -848,8 +875,14 @@ elif section == "Calibration":
     st.divider()
     min_retained = remember_widget(st, "number_input", "Minimum retained scans per sample",
                                    key="qc_min_retained", min_value=2, value=2)
-    allow_single = remember_widget(st, "checkbox", "Allow explicitly reviewed single-scan exceptions",
-                                   key="qc_allow_single")
+    allow_single = remember_widget(
+        st, "checkbox", "Allow explicitly reviewed single-scan exceptions", key="qc_allow_single"
+    )
+    frozen_options = (min_retained, allow_single)
+    if (st.session_state.get("qc_frozen") and
+            st.session_state.get("rc6_qc_frozen_options") != frozen_options):
+        st.session_state.pop("qc_frozen", None)
+        st.info("Calibration retention settings changed; freeze the selection again.")
     try:
         _, selection_preview = review_selection(
             data, tables, st.session_state.qc_reviews, min_retained=min_retained,
@@ -885,6 +918,7 @@ elif section == "Calibration":
                 for name in selection["retained"]
             ]).to_csv(folder / "Reviewed_Spectra.csv", index=False, encoding="utf-8-sig")
             st.session_state.qc_frozen = str(path)
+            st.session_state.rc6_qc_frozen_options = frozen_options
             st.session_state.qc_saved_folder = str(folder)
             st.success(f"Frozen manifest: {path}")
         except Exception as exc:
