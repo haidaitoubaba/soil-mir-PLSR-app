@@ -16,7 +16,7 @@ from soil_mir.preprocessing import fit_transform_preprocessor
 from soil_mir.services.qc_manifest import decision_source, digest_file, resolve_groups
 from soil_mir.qc import (
     REGIONS, align_group, classify_pair, compare_strategies, diagnose,
-    group_issues, mad_threshold, pair_metrics,
+    group_issues, mad_threshold, pair_metrics, policy_decisions,
 )
 
 
@@ -277,6 +277,14 @@ def evaluate_batch(batch, criteria, decisions=None):
                 })
         pairs.extend(pair_rows)
         d = diagnose(scans, edges, batch.expected)
+        active, passed, required, recommendations, policy_reason = policy_decisions(
+            scans, entries, edges, criteria, batch.expected
+        )
+        # A failed input read/validation is never an acceptance, even in reference mode.
+        if any(scan.filename in batch.errors for scan in scans):
+            active = "Incomplete"
+            recommendations = dict.fromkeys(recommendations, "Pending review")
+            policy_reason = "Resolve invalid spectral input"
         dual = compare_strategies(scans, entries, criteria.similarity, batch.expected)
         comparison.append({"Sample ID": sample, **dual, "Active all-pair QC": d["status"]})
         metrics = [m for _, _, m, _ in entries]
@@ -293,15 +301,20 @@ def evaluate_batch(batch, criteria, decisions=None):
             "Max NRMSE (%)": _extreme(metrics, "nrmse", max),
             "Max RMSE (AU)": _extreme(metrics, "rmse", max),
             "Max SAM (degrees)": _extreme(metrics, "sam", max),
-            "Pairs passed": d["passed"], "Expected pairs": d["expected_pairs"],
-            "Sample QC": d["status"], "USDA-style status": dual["USDA-style status"],
+            "Pairs passed": passed, "Expected pairs": required,
+            "Sample QC": active, "All-pair diagnostic": d["status"],
+            "Acceptance": {"Pass": "Consistent", "Fail": "Inconsistent",
+                           "Review": "Review", "Incomplete": "Incomplete"}[active],
+            "Active comparison method": criteria.comparison_method,
+            "Decision strategy": criteria.decision_strategy,
+            "USDA-style status": dual["USDA-style status"],
             "All-pairwise Pearson status": dual["All-pairwise Pearson status"],
             "Method agreement": dual["Method agreement"],
             "Suspected Replicate": d["suspected_replicate"],
             "Suspected File": d["suspected_file"] or "",
             "Review Candidate Files": "; ".join(d["review_candidates"]),
             "Diagnosis Reason": "; ".join(dict.fromkeys(reasons)),
-            "Recommended Action": d["action"],
+            "Recommended Action": policy_reason,
         })
         for scan in scans:
             name = scan.filename
@@ -321,6 +334,11 @@ def evaluate_batch(batch, criteria, decisions=None):
                 "Invalid": "Input invalid; investigate before deciding",
                 "Needs review": "No unambiguous retention decision",
             }[diag]
+            recommendation = recommendations[name]
+            if criteria.decision_strategy != "Conservative screening":
+                explanation = policy_reason
+            elif recommendation == "Pending review":
+                explanation = policy_reason
             manual = decisions.get(name, {})
             action = manual.get("decision", "Pending review")
             file_row = {
@@ -365,19 +383,18 @@ def evaluate_batch(batch, criteria, decisions=None):
                     "Sample ID": sample, "File Name": name, "Replicate ID": scan.replicate,
                     "Type": "Confirmed rescan", "Reason": manual.get("reason", ""),
                 })
-            if name == d["suspected_file"] or diag == "Invalid":
+            if recommendation == "Rescan required" or diag == "Invalid":
                 rescans.append({
                     "Sample ID": sample, "File Name": name, "Replicate ID": scan.replicate,
-                    "Type": "Suggested inspection or rescan", "Reason": diag,
+                    "Type": "Suggested inspection or rescan", "Reason": explanation,
                 })
-        if d["status"] == "Fail" or (
-            d["status"] == "Review" and not d["passed"]
-        ):
+        if active == "Fail" or (active == "Review" and not passed):
             rescans.append({
                 "Sample ID": sample, "File Name": "", "Replicate ID": None,
-                "Type": "Whole sample review or rescan", "Reason": d["action"],
+                "Type": "Whole sample review or rescan", "Reason": policy_reason,
             })
-        if batch.expected == 3 and d["status"] == "Review" and d["passed"] == 2:
+        if (criteria.decision_strategy == "Conservative screening"
+                and batch.expected == 3 and d["status"] == "Review" and d["passed"] == 2):
             rescans.append({
                 "Sample ID": sample, "File Name": "; ".join(d["review_candidates"]),
                 "Replicate ID": None, "Type": "Inspect file pair", "Reason": d["action"],
@@ -456,6 +473,27 @@ def evaluate_batch(batch, criteria, decisions=None):
     rescan_frame["Similarity threshold (%)"] = criteria.similarity
     rescan_frame["QC mode"] = "Advanced" if criteria.advanced else "USDA-inspired"
     rescan_frame["Batch"] = batch.batch_label
+    sample_rescans = []
+    for sample, scans in batch.groups.items():
+        rows = file_frame.loc[file_frame["Sample ID"] == sample]
+        suggested = rows["Recommended decision"].eq("Rescan required")
+        confirmed = rows["Manual decision"].eq("Rescan required")
+        if suggested.any() or confirmed.any():
+            sample_rescans.append({
+                "Sample ID": sample, "Replicates": len(scans),
+                "Suggested rescans": int(suggested.sum()),
+                "Confirmed rescans": int(confirmed.sum()),
+                "Suggested scope": "Entire sample" if suggested.all() else "Selected files"
+                if suggested.any() else "None",
+                "Confirmed scope": "Entire sample" if confirmed.all() else "Selected files"
+                if confirmed.any() else "None",
+                "Decision strategy": criteria.decision_strategy,
+                "Active comparison method": criteria.comparison_method,
+            })
+    sample_rescan_frame = pd.DataFrame(sample_rescans, columns=[
+        "Sample ID", "Replicates", "Suggested rescans", "Confirmed rescans",
+        "Suggested scope", "Confirmed scope", "Decision strategy", "Active comparison method",
+    ])
     statuses = sample_frame.get("Sample QC", pd.Series(dtype=str)).value_counts()
     evaluated = int(sum(statuses.get(key, 0) for key in ("Pass", "Review", "Fail")))
     overview = {
@@ -464,6 +502,9 @@ def evaluate_batch(batch, criteria, decisions=None):
         "Read errors": len(batch.read_errors or {}),
         "Input validation errors": len(set(batch.errors) - set(batch.read_errors or {})),
         "Evaluable samples": evaluated,
+        "Consistent": int(statuses.get("Pass", 0)),
+        "Inconsistent": int(statuses.get("Fail", 0)),
+        "Pending files": int(file_frame["Manual decision"].eq("Pending review").sum()),
         "Effective minimum (cm⁻¹)": batch.effective_lower,
         "Effective maximum (cm⁻¹)": batch.effective_upper,
         **{status: int(statuses.get(status, 0))
@@ -501,7 +542,9 @@ def evaluate_batch(batch, criteria, decisions=None):
         "Pearson threshold (%)": criteria.similarity, "Comparison": "strict >",
         "Comparison strategy": "Dual evaluation (same Pearson metrics)",
         "Reference strategy": "Replicate ID 1; Pearson only; not validated against Quick Compare",
-        "Review strategy": "Active all-pair QC; independent of USDA-style status",
+        "Review strategy": criteria.decision_strategy,
+        "Active comparison method": criteria.comparison_method,
+        "Advanced gates": "Active required pairs only; dual comparison remains Pearson-only",
         "NRMSE denominator": "RMS of mean pair spectrum",
         "Threshold provenance": "User settings; NRMSE limits exploratory",
         "Absorbance block": "AB only",
@@ -513,6 +556,7 @@ def evaluate_batch(batch, criteria, decisions=None):
         "Regional QC": pd.DataFrame(regional), "File QC": file_frame,
         "Replicate Diagnosis": file_frame.copy(), "Rescan List": rescan_frame,
         "Agreed Spectra": agreed, "Review decisions": review,
+        "Sample Rescan List": sample_rescan_frame,
         "Method Comparison": comparison_frame,
         "Threshold Sensitivity": pd.DataFrame(sensitivity),
         "Settings": pd.DataFrame(list(settings.items()), columns=["Field", "Value"]),

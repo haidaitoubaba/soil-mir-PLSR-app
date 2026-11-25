@@ -59,6 +59,8 @@ def criteria_dict(criteria):
     return {
         "similarity": criteria.similarity, "advanced": criteria.advanced,
         "nrmse_pass": criteria.nrmse_pass, "nrmse_fail": criteria.nrmse_fail,
+        "decision_strategy": criteria.decision_strategy,
+        "comparison_method": criteria.comparison_method,
         "regional_limits": [
             [list(region), list(limits)] for region, limits in sorted(
                 criteria.regional_limits.items()
@@ -302,6 +304,14 @@ def review_selection(batch, tables, decisions, *, freeze=False,
             raise ValueError(f"{len(pending)} unresolved files; review or exclude them first.")
         if not retained:
             raise ValueError("No retained spectra.")
+        settings = dict(zip(tables["Settings"]["Field"], tables["Settings"]["Value"]))
+        if settings.get("Review strategy") == "Routine QC":
+            for sample, count in counts.items():
+                if count and (count != batch.expected or statuses.get(sample) != "Pass"):
+                    raise ValueError(
+                        f"Routine QC requires whole passing samples: {sample}. "
+                        "Use spectral screening to approve a subset."
+                    )
         for sample, count in counts.items():
             if not count:
                 continue
@@ -341,7 +351,7 @@ def build_manifest(batch, criteria, tables, decisions, *, freeze=False,
             name: json.loads(tables[name].to_json(orient="records", double_precision=15))
             for name in ("Sample QC", "Pairwise QC", "Regional QC", "File QC", "Rescan List",
                          "Agreed Spectra", "Review decisions", "Method Comparison",
-                         "Threshold Sensitivity")
+                         "Threshold Sensitivity", "Sample Rescan List")
         },
         "selection": selection,
     }

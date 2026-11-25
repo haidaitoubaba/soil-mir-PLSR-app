@@ -37,3 +37,6 @@ implementation is not asserted to reproduce OPUS Quick Compare.
 - Clarify read-only USDA-style pair membership and explicitly label unreviewed files.
 - Clear all saved review decisions with confirmation and undo up to 20 saved transactions
   within the same QC session and criteria. Original spectra and saved exports are unchanged.
+
+- Default UI: Routine QC / USDA-style reference acceptance; all-pairwise remains selectable.
+- Conservative and best-pair screening, sample-level rescan lists, explicit policy metadata.

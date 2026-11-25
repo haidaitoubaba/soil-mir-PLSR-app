@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from soil_mir.io.opus import list_opus_files
-from soil_mir.qc import Criteria, REGIONS, group_issues
+from soil_mir.qc import COMPARISON_METHODS, DECISION_STRATEGIES, Criteria, REGIONS, group_issues
 from soil_mir.preprocessing import NO_SG_METHODS, PREPROCESSING_NAMES
 from soil_mir.services.local_paths import choose_local_path, open_local_folder
 from soil_mir.services.spectral_qc import (
@@ -169,18 +169,28 @@ if st.button("Reset acceptance defaults"):
     for key, value in {
         "qc_mode": "USDA-inspired", "qc_similarity": 99.6,
         "qc_nrmse_pass": 2., "qc_nrmse_fail": 5.,
+        "qc_strategy": "Routine QC", "qc_method": "USDA-style",
     }.items():
         st.session_state[key] = value
     for key in list(st.session_state):
         if key.startswith("qc_reg_"):
             del st.session_state[key]
+strategy = st.selectbox("Decision strategy", DECISION_STRATEGIES, key="qc_strategy")
+if strategy == "Routine QC":
+    comparison_method = st.radio(
+        "Active comparison method", COMPARISON_METHODS, key="qc_method", horizontal=True
+    )
+else:
+    comparison_method = "All-pairwise"
+    st.caption("Spectral screening uses all-pairwise comparisons.")
+st.caption("Dual Pearson evaluation is always enabled.")
 mode = st.radio("QC mode", ["USDA-inspired", "Advanced"], key="qc_mode", horizontal=True)
 similarity = st.number_input(
     "Minimum spectral similarity (Pearson r, %; strict >)",
     min_value=0., max_value=99.9999, value=99.6, step=.1, format="%.4f", key="qc_similarity",
 )
 st.caption(
-    "99.6% is a USDA-inspired default; this all-pair Pearson implementation "
+    "99.6% is a USDA-inspired default; this Pearson implementation "
     "is not claimed to be numerically identical to OPUS Quick Compare."
 )
 nrmse_pass, nrmse_fail = 2., 5.
@@ -199,7 +209,10 @@ if mode == "Advanced":
                 f = b.number_input("Fail limit (AU)", value=.03, key=f"qc_reg_f_{region_key}")
                 regional_limits[(low, high)] = (p, f)
 try:
-    criteria = Criteria(similarity, mode == "Advanced", nrmse_pass, nrmse_fail, regional_limits)
+    criteria = Criteria(
+        similarity, mode == "Advanced", nrmse_pass, nrmse_fail, regional_limits,
+        strategy, comparison_method,
+    )
 except ValueError as exc:
     st.error(str(exc))
     st.stop()
@@ -273,11 +286,14 @@ if st.session_state.get("qc_review_criteria") != criteria:
     st.session_state.qc_review_revision = st.session_state.get("qc_review_revision", 0) + 1
     st.session_state.pop("qc_frozen", None)
     st.session_state.qc_review_criteria = criteria
-    st.info("Threshold changed: cached metrics reused; review decisions require reconfirmation.")
+    st.info("QC rule changed: cached metrics reused; review decisions require reconfirmation.")
 tables = evaluate_batch(data, criteria, st.session_state.qc_reviews)
 overview = tables["Overview"].set_index("Metric")["Value"]
-st.subheader("QC summary — active all-pair QC")
-for col, key in zip(st.columns(4), ["Pass", "Review", "Fail", "Incomplete"]):
+st.subheader(f"QC summary — {strategy} / {comparison_method}")
+keys = ["Consistent", "Inconsistent", "Incomplete"] if strategy == "Routine QC" else [
+    "Pass", "Review", "Fail", "Incomplete",
+]
+for col, key in zip(st.columns(len(keys)), keys):
     col.metric(key, int(overview[key]))
 st.caption(
     f"Identified samples: {int(overview['Identified samples'])}; "
@@ -310,7 +326,7 @@ st.caption(
     "Both use the same raw Pearson coefficients and strict threshold. USDA-style uses "
     "replicate ID 1 as reference (self = 100%); all-pairwise tests every pair. "
     "Not validated against OPUS Quick Compare. Advanced NRMSE/region gates affect only "
-    "active all-pair QC and review decisions, not this Pearson-only comparison."
+    "active required pairs and review decisions, not this Pearson-only comparison."
 )
 comparison = tables["Method Comparison"]
 sensitivity = tables["Threshold Sensitivity"]
@@ -477,10 +493,31 @@ if not summary.empty:
             }], tables["File QC"])
 st.subheader("Batch review decisions")
 st.caption(
-    "Apply recommendations only to files without existing decisions: keep agreeing scans, "
-    "recommend rescanning a uniquely suspected third scan. Ambiguous and invalid inputs "
-    "stay pending. This never changes or deletes original spectra."
+    "Apply the active policy to unreviewed files only. Routine QC recommends Keep all "
+    "or Rescan all for valid samples. Existing manual decisions remain untouched; "
+    "input issues and ambiguous screening cases stay pending. No source files are changed."
 )
+pending_files = tables["File QC"].loc[
+    tables["File QC"]["Manual decision"] == "Pending review"
+].copy()
+st.write(f"Pending review: {len(pending_files)} files")
+if not pending_files.empty:
+    pending_files["Pending cause"] = pending_files.apply(
+        lambda row: "Explicitly saved Pending" if row["Decision source"] != "Not reviewed"
+        else "Awaiting batch application" if row["Recommended decision"] != "Pending review"
+        else row["Recommendation reason"], axis=1,
+    )
+    st.dataframe(pending_files["Pending cause"].value_counts().rename("Files"), hide_index=False)
+if strategy == "Routine QC":
+    conflicts = tables["File QC"].loc[
+        (tables["File QC"]["Manual decision"] != "Pending review")
+        & (tables["File QC"]["Manual decision"] != tables["File QC"]["Recommended decision"])
+    ]
+    if not conflicts.empty:
+        st.warning(
+            f"{len(conflicts)} saved decisions differ from Routine QC recommendations. "
+            "Resolve overrides before freezing a whole-sample calibration selection."
+        )
 if st.button("Apply recommended decisions to unreviewed files"):
     updated = recommended_reviews(tables, st.session_state.qc_reviews)
     count = len(updated) - len(st.session_state.qc_reviews)
@@ -544,8 +581,8 @@ agreed_tab, review_tab, rescan_tab = st.tabs(["Agreed spectra", "Review decision
 with agreed_tab:
     agreed = tables["Agreed Spectra"]
     st.caption(
-        "Automatic recommendation, not an approved PLSR selection. Includes all-pass groups "
-        "and the unique passing pair of a complete triplet. Manual decisions remain separate."
+        "Keep recommendations under the active policy, not an approved PLSR selection. "
+        "Manual decisions remain separate."
     )
     st.write(f"{len(agreed)} agreed spectra across {agreed['Sample ID'].nunique()} samples.")
     review_editor(agreed, "agreed", tables["File QC"])
@@ -559,6 +596,14 @@ with review_tab:
     st.download_button("Export Reviewed Keep List", kept.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"Reviewed_Keep_{timestamp}.csv", mime="text/csv")
 with rescan_tab:
+    sample_rescans = tables["Sample Rescan List"]
+    st.markdown("**Sample-level rescan list**")
+    st.dataframe(sample_rescans, hide_index=True)
+    st.download_button(
+        "Export Sample Rescan List", sample_rescans.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"Sample_Rescan_List_{timestamp}.csv", mime="text/csv",
+    )
+    st.markdown("**Replicate-level rescan list**")
     rescan = tables["Rescan List"]
     rescan_mode = st.radio("Rescan export", ["All", "Confirmed only", "Suggestions only"],
                            horizontal=True)

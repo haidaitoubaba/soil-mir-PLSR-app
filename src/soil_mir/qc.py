@@ -28,6 +28,10 @@ class Scan:
     well: str = ""
 
 
+DECISION_STRATEGIES = ("Routine QC", "Conservative screening", "Best passing pair")
+COMPARISON_METHODS = ("USDA-style", "All-pairwise")
+
+
 @dataclass(frozen=True)
 class Criteria:
     similarity: float = 99.6
@@ -35,8 +39,17 @@ class Criteria:
     nrmse_pass: float = 2.0
     nrmse_fail: float = 5.0
     regional_limits: dict = field(default_factory=dict)
+    # Old programmatic callers and manifests retain RC4 semantics.
+    decision_strategy: str = "Conservative screening"
+    comparison_method: str = "All-pairwise"
 
     def __post_init__(self):
+        if self.decision_strategy not in DECISION_STRATEGIES:
+            raise ValueError("Unknown QC decision strategy.")
+        if self.comparison_method not in COMPARISON_METHODS:
+            raise ValueError("Unknown QC comparison method.")
+        if self.decision_strategy != "Routine QC" and self.comparison_method != "All-pairwise":
+            raise ValueError("Spectral screening requires all-pairwise comparisons.")
         if not np.isfinite(self.similarity) or not 0 <= self.similarity < 100:
             raise ValueError("Similarity must be in [0, 100).")
         if not 0 < self.nrmse_pass < self.nrmse_fail < np.inf:
@@ -332,6 +345,68 @@ def diagnose(scans, pairs, expected=3):
         "suspected_replicate": next((s.replicate for s in scans if s.filename == suspect), None),
         "review_candidates": candidates, "action": action, "files": files, **issues,
     }
+
+
+def policy_decisions(scans, entries, edges, criteria, expected=3):
+    """Keep all-pair diagnosis separate from the active acceptance policy."""
+    d = diagnose(scans, edges, expected)
+    names = sorted(scan.filename for scan in scans)
+    result = {name: "Pending review" for name in names}
+    strategy = criteria.decision_strategy
+    if strategy == "Routine QC":
+        required = [(a, b, status) for a, b, status in edges
+                    if criteria.comparison_method == "All-pairwise"
+                    or any(scan.replicate == 1 and scan.filename in (a, b) for scan in scans)]
+        count = expected * (expected - 1) // 2 if (
+            criteria.comparison_method == "All-pairwise"
+        ) else expected - 1
+        complete = (
+            len(names) == expected and len(set(names)) == expected
+            and not any(group_issues(scans, expected).values())
+            and len(required) == count
+            and len({tuple(sorted((a, b))) for a, b, _ in required}) == count
+            and all(status in {"Pass", "Review", "Fail"} for _, _, status in required)
+        )
+        passed = sum(status == "Pass" for _, _, status in required)
+        if not complete:
+            return "Incomplete", passed, count, result, "Resolve grouping or invalid input"
+        accepted = passed == count
+        choice = "Keep" if accepted else "Rescan required"
+        reason = "All required pairs pass" if accepted else "Required pair did not pass; rescan all"
+        return ("Pass" if accepted else "Fail", passed, count,
+                dict.fromkeys(names, choice), reason)
+    if d["status"] == "Pass":
+        return "Pass", d["passed"], d["expected_pairs"], dict.fromkeys(names, "Keep"), "Keep all"
+    if d["status"] == "Incomplete":
+        return d["status"], d["passed"], d["expected_pairs"], result, d["action"]
+    if strategy == "Conservative screening":
+        for name, detail in d["files"].items():
+            if detail in {"Consistent", "Mutually consistent"}:
+                result[name] = "Keep"
+            elif detail == "Suspected":
+                result[name] = "Rescan required"
+        return d["status"], d["passed"], d["expected_pairs"], result, d["action"]
+    if not d["passed"]:
+        return (d["status"], d["passed"], d["expected_pairs"],
+                dict.fromkeys(names, "Rescan required"), "No passing pairs; rescan all")
+    # For >3 replicates do not silently discard otherwise compatible larger subsets.
+    if expected != 3:
+        return d["status"], d["passed"], d["expected_pairs"], result, (
+            "Partial pass with non-triplet input; review larger consistent subsets manually"
+        )
+    passing = {tuple(sorted((a, b))) for a, b, status in edges if status == "Pass"}
+    candidates = [(m["r"], -m["nrmse"], tuple(sorted((a.filename, b.filename))))
+                  for a, b, m, _ in entries
+                  if m is not None and tuple(sorted((a.filename, b.filename))) in passing]
+    if not candidates:
+        return d["status"], d["passed"], d["expected_pairs"], result, "No valid passing pair"
+    # Exact metric ties are unresolved, not decided by filename ordering.
+    score = max((r, nrmse) for r, nrmse, _ in candidates)
+    best = [pair for r, nrmse, pair in candidates if (r, nrmse) == score]
+    if len(best) != 1:
+        return d["status"], d["passed"], d["expected_pairs"], result, "Tied best pairs; review"
+    result = {name: "Keep" if name in best[0] else "Rescan required" for name in names}
+    return d["status"], d["passed"], d["expected_pairs"], result, "Retain best passing pair"
 
 
 def mad_threshold(values, k=3., minimum=20):
