@@ -281,7 +281,10 @@ if section == "Summary":
     if not last_outcome:
         st.info("No validation outcome in this session.")
     if st.session_state.get("soil_mir_results"):
-        if st.button("Open Results"):
+        current = last_outcome and last_outcome.get("run_dir") == st.session_state.get(
+            "soil_mir_last_run_dir"
+        )
+        if st.button("Open Results" if current else "Open previously loaded Results"):
             request_section("results", "Overview")
             st.switch_page("pages/4_Results.py")
     st.stop()

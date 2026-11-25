@@ -91,6 +91,7 @@ final_settings = result["final_settings"]
 st.caption(f"Selected analysis: {selected_property} / {method_label}")
 
 if section == "Overview":
+    selected_result = result
     summary_rows = []
     for result in results.values():
         summary = result["summary"].set_index(
@@ -163,6 +164,7 @@ if section == "Overview":
         "Final model settings are selected separately on "
         "all eligible data and are not themselves a held-out score."
     )
+    result = selected_result
     summary = result["summary"].set_index(
         "Metric"
     )

@@ -79,7 +79,9 @@ def render_model_preview(path, entry, key, *, automatic=False):
     except (OSError, ValueError) as exc:
         st.error(f"Model unavailable: {exc}")
         return None
-    identity = (signature, entry.get("id") if entry else None)
+    # Include the recorded display/validation metadata, not just the model file identity.
+    metadata_identity = repr(entry) if entry else None
+    identity = (signature, entry.get("id") if entry else None, metadata_identity)
     previous = st.session_state.get(key)
     if automatic or st.button("Preview selected model", key=f"{key}_preview"):
         if not previous or previous[0] != identity:
