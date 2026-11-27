@@ -18,11 +18,26 @@ selection only after manual confirmation. On Run, optionally enter the frozen ma
 file SHA-256 fingerprints and authoritative reference Sample IDs are validated before filtering.
 No original spectra are changed. Existing PLSR and Predict workflows remain available without QC.
 
+## Cleanup before modelling
+
+Open **Cleanup**, the first page under **Calibration**, to create a session or reopen an
+existing version 1 session. Choose the reference workbook, OPUS folder, and output folder
+in Cleanup, or reuse paths already inspected in **Modeling Data**. New sessions read the
+native OPUS grid used for PLSR calibration. Existing sessions retain their saved spectra
+and review decisions.
+
+Complete the PCA and Half A/B reviews, then export the cleaned dataset from the Cleanup
+workbench. Click **Use in PLSR** to load the cleaned workbook and original OPUS folder
+into **Modeling Data**. Inspect them to apply the inputs, then open **Configuration**
+to choose properties. Open **Run** for preflight and validation. Data Overview lists the
+reviewed properties. Exclusions apply per property and the original OPUS files stay in place.
+
 ## Current workflow
 
-The app now provides:
+Use **Spectral QC** directly for daily scan checks. If your modeling inputs are ready,
+open **Modeling Data** directly.
 
-1. **Data** — choose any local Bruker OPUS directory, reference workbook, and results directory. On macOS and Windows, native Browse buttons are available; successful selections are remembered as the last-used paths. Auto-detected legacy layouts are suggestions only and are never selected automatically. Property sheets are also never preselected; the user explicitly chooses which properties to inspect or model.
+1. **Modeling Data** — choose any local Bruker OPUS directory, reference workbook, and results directory. On macOS and Windows, native Browse buttons are available; successful selections are remembered as the last-used paths. Auto-detected legacy layouts are suggestions only and are never selected automatically. Property sheets are also never preselected; the user explicitly chooses which properties to inspect or model.
 2. **Configuration** — select properties and validation/model-search settings.
 3. **Run** — run an explicit preflight feasibility check first, review its Pass/Fail table, then start nested validation in a responsive background job. Live progress remains visible, the run can be safely cancelled at scientific checkpoints, and incomplete runs remain resumable without repeating completed property/method combinations.
 4. **Results** — review outer-validation metrics, predictions, model selection, and saved artifacts.

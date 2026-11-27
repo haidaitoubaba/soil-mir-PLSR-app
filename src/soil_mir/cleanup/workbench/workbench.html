@@ -1,0 +1,272 @@
+<div class="mir" data-theme="light">
+  <header class="top">
+    <div class="brand"><strong>MIR Cleanup</strong><span id="session-name">No session open</span><small id="unsaved" hidden>Unsaved edits</small></div>
+    <div class="menus">
+      <details class="menu"><summary>Session</summary><div class="menu-pop">
+        <button id="new-session">New session…</button>
+        <button id="open-desktop">Open desktop session…</button>
+      </div></details>
+      <button id="auto-cleanup" hidden>Auto Cleanup…</button>
+      <button id="save-copy" hidden>Save copy…</button>
+      <label class="sr-only" for="appearance">Appearance</label>
+      <select id="appearance" aria-label="Appearance">
+        <option value="light">Appearance · Light</option>
+        <option value="night">Appearance · Night</option>
+        <option value="system">Appearance · System</option>
+      </select>
+    </div>
+  </header>
+  <main id="welcome" class="welcome" aria-labelledby="welcome-title">
+    <section class="welcome-card">
+      <h1 id="welcome-title">Open or create a Cleanup session</h1>
+      <div class="welcome-actions">
+        <button id="start-new-session" type="button" class="primary">New session…</button>
+        <button id="start-open-session" type="button">Open desktop session…</button>
+      </div>
+      <p id="welcome-status" role="status"></p>
+    </section>
+  </main>
+  <div id="review-columns" class="columns" hidden>
+    <aside class="properties">
+      <h2>Properties</h2>
+      <nav id="properties" aria-label="Properties"></nav>
+    </aside>
+    <div class="split" data-side="left" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize properties"></div>
+    <main class="center">
+      <nav class="stages" aria-label="Review stage">
+        <button id="stage-pca" class="active" aria-current="step">PCA</button>
+        <button id="stage-a" disabled title="Finish PCA review to enter Half A">Half A</button>
+        <button id="stage-b" disabled title="Finish Half A review to enter Half B">Half B</button>
+        <button id="stage-export" hidden>Export</button>
+      </nav>
+      <div class="page-heading">
+        <div class="title"><span id="property-title"></span><h1 id="stage-title">PCA review</h1></div>
+        <div class="tools">
+          <button id="settings-button" aria-expanded="false">View settings</button>
+          <details class="menu"><summary>Plot tools</summary><div class="menu-pop">
+            <button id="open-offline">Open offline PCA</button>
+            <button id="save-offline">Save offline PCA HTML</button>
+            <button id="save-plot">Save plot PNG</button>
+            <button id="reset-view">Reset plot view</button>
+          </div></details>
+        </div>
+      </div>
+      <div id="settings" class="settings" hidden>
+        <label id="pc-x-field">X PC <select id="pc-x"></select></label>
+        <label id="pc-y-field">Y PC <select id="pc-y"></select></label>
+        <label id="scale-field" hidden>Scale
+          <select id="scale" aria-label="Scale"><option value="model">Modelled scale</option><option value="original">Original units</option></select>
+        </label>
+        <label>Colour <select id="colour"><option>Status</option><option>Treatment</option><option>Reference value</option></select></label>
+        <label>Show <select id="subset"><option value="all">All in fitted model</option><option value="retained">Retained only</option><option value="excluded">Excluded only</option><option value="automatic" hidden>Auto-excluded only</option></select></label>
+      </div>
+      <nav class="tabs" aria-label="Review view">
+        <button class="active" data-tab="plot" aria-pressed="true">Plot</button>
+        <button data-tab="table" aria-pressed="false">Data sheet</button>
+        <button data-tab="full" aria-pressed="false">Full dataset</button>
+      </nav>
+      <div id="plot-panel" class="view plot-panel">
+        <div class="plot-toolbar">
+          <button id="home" class="icon" aria-label="Reset zoom" title="Reset zoom">⌂</button>
+          <button id="zoom-in" class="icon" aria-label="Zoom in" title="Zoom in">+</button>
+          <button id="zoom-out" class="icon" aria-label="Zoom out" title="Zoom out">−</button>
+          <label class="sr-only" for="mode">Plot selection mode</label>
+          <select id="mode"><option value="point">Click points</option><option value="box" selected>Rectangle selection</option><option value="lasso">Lasso selection</option></select>
+          <button id="clear-plot">Clear selection</button>
+        </div>
+        <p id="calibration-metrics" class="calibration-metrics" hidden></p>
+        <div class="plot-area">
+          <canvas id="pca-chart" tabindex="0" aria-label="PCA score scatter plot. Use the Data sheet for keyboard selection."></canvas>
+          <div id="tooltip" role="tooltip" hidden></div>
+        </div>
+      </div>
+      <div id="table-panel" class="view table-panel" hidden>
+        <div class="table-toolbar">
+          <label class="sr-only" for="filter">Filter records</label>
+          <input id="filter" type="search" placeholder="Filter sample, filename, group or status">
+          <button id="reset-filters" disabled>Clear filters</button>
+          <span id="table-count"></span>
+          <button id="clear-table">Clear selection</button>
+        </div>
+        <div class="table-scroll" tabindex="0" aria-label="PCA review records">
+          <table><thead id="table-head"></thead><tbody id="table-body"></tbody></table>
+        </div>
+      </div>
+      <div id="split-summary" class="split-summary" hidden></div>
+      <section id="export-panel" class="export-overview" aria-label="Export overview" hidden>
+        <p id="export-intro" class="export-intro"></p>
+        <div class="table-scroll">
+          <table class="export-table">
+            <thead><tr>
+              <th scope="col">Property</th><th scope="col">Review status</th>
+              <th scope="col">Input spectra</th><th scope="col">Retained</th>
+              <th scope="col">Excluded</th><th scope="col">Samples affected</th>
+            </tr></thead>
+            <tbody id="export-rows"></tbody>
+          </table>
+        </div>
+        <div class="export-actions" aria-label="Export files">
+          <button id="export-review" hidden>Export review Excel…</button>
+          <div class="export-dataset-actions">
+            <button id="export-cleaned" class="primary" hidden>Export cleaned dataset…</button>
+            <button id="use-in-plsr" class="primary" type="button" hidden>Use in PLSR</button>
+          </div>
+        </div>
+        <div id="latest-export" class="split-summary" hidden>
+          <p id="latest-export-path"></p>
+          <button type="button" id="open-export-folder">Open export folder</button>
+        </div>
+      </section>
+    </main>
+    <div class="split" data-side="right" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize selection"></div>
+    <aside class="selection">
+      <div id="review-inspector">
+      <h2>Selection</h2>
+      <div id="selection-count" aria-live="polite"></div>
+      <strong id="impact"></strong>
+      <ul id="selected-files" aria-label="Affected spectra" hidden></ul>
+      <div id="automatic-selection" hidden>
+        <strong>Automatically excluded</strong>
+        <ul id="automatic-triggers" aria-label="Candidate spectra that triggered exclusion"></ul>
+      </div>
+      <div id="decision" hidden>
+        <label>Exclusion unit <select id="unit"><option>spectrum</option><option>sample</option></select></label>
+        <label>Reason (optional) <select id="reason">
+          <option value="">No reason</option><option value="redundancy">Redundancy</option>
+          <option value="spectral_quality">Spectral quality</option><option value="range">Range</option>
+          <option value="concentration" id="reason-concentration" hidden>Concentration</option>
+        </select></label>
+        <label>Optional comment <textarea id="comment" rows="2"></textarea></label>
+        <button id="exclude" class="review-action">Review exclusion…</button>
+        <button id="restore">Restore selected…</button>
+      </div>
+      <details class="model-details"><summary>Model details</summary><div id="model"></div></details>
+      </div>
+      <div id="export-inspector" class="export-inspector" hidden>
+        <h2>Original reference workbook</h2>
+        <p id="export-workbook-path"></p>
+        <p id="export-workbook-status" role="status"></p>
+        <button id="locate-workbook">Locate original workbook…</button>
+      </div>
+    </aside>
+  </div>
+  <footer id="review-footer" class="footer" hidden>
+    <div id="status" role="status"></div>
+    <div class="footer-actions">
+      <button id="undo">Undo decision</button>
+      <button id="refit">Refit PCA</button>
+      <button id="finish" class="primary">Finish PCA review / split</button>
+    </div>
+  </footer>
+  <dialog id="auto-dialog" aria-labelledby="auto-title">
+    <h2 id="auto-title">Auto Cleanup</h2>
+    <section id="auto-setup">
+      <p>Run PCA grouping and both calibration reviews for the selected properties in a new session copy.</p>
+      <fieldset id="auto-properties">
+        <legend>Choose properties</legend>
+        <div id="auto-property-list"></div>
+        <div class="new-property-actions">
+          <button type="button" id="auto-select-all">Select all</button>
+          <button type="button" id="auto-unselect-all">Unselect all</button>
+        </div>
+      </fieldset>
+      <label class="path-field" for="auto-output">Save the new copy in</label>
+      <div class="path-field-row">
+        <input id="auto-output" type="text" spellcheck="false" autocomplete="off">
+        <button type="button" id="auto-browse" aria-label="Browse for automatic cleanup output folder">Browse…</button>
+      </div>
+    </section>
+    <section id="auto-results" hidden>
+      <p id="auto-result-path" hidden></p>
+      <div class="auto-results-scroll" tabindex="0" aria-label="Automatic cleanup results">
+        <table>
+          <thead><tr><th scope="col">Property</th><th scope="col">Status</th>
+            <th scope="col">Half A</th><th scope="col">Half B</th><th scope="col">Review</th></tr></thead>
+          <tbody id="auto-result-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <p id="auto-status" role="status" aria-live="polite" hidden></p>
+    <div class="confirm-actions">
+      <button type="button" id="auto-close">Close</button>
+      <button type="button" id="auto-new" hidden>New batch…</button>
+      <button type="button" id="auto-stop" hidden>Stop after current property</button>
+      <button type="button" id="auto-export" class="primary" hidden>View export overview</button>
+      <button type="button" id="auto-run" class="primary">Run Auto Cleanup</button>
+    </div>
+  </dialog>
+  <dialog id="new-session-dialog" aria-labelledby="new-session-title">
+    <form id="new-session-form">
+      <h2 id="new-session-title">New Cleanup session</h2>
+      <p>Choose a reference workbook and its OPUS spectra. Cleanup saves the new session in a dated folder.</p>
+      <p id="new-session-draft" hidden>Creating a new session closes this review. Save a copy first to keep unsaved edits.</p>
+      <div class="new-paths">
+        <label for="new-workbook">Reference Excel</label>
+        <div class="new-path-row">
+          <input id="new-workbook" type="text" required spellcheck="false" autocomplete="off">
+          <button type="button" data-browse="workbook" aria-label="Browse for reference Excel">Browse…</button>
+        </div>
+        <label for="new-spectra">OPUS spectra folder</label>
+        <div class="new-path-row">
+          <input id="new-spectra" type="text" required spellcheck="false" autocomplete="off">
+          <button type="button" data-browse="spectra" aria-label="Browse for OPUS spectra folder">Browse…</button>
+        </div>
+        <label for="new-output">Save new session in</label>
+        <div class="new-path-row">
+          <input id="new-output" type="text" required spellcheck="false" autocomplete="off">
+          <button type="button" data-browse="output" aria-label="Browse for new-session output folder">Browse…</button>
+        </div>
+      </div>
+      <fieldset id="new-properties" hidden>
+        <legend>Choose property sheets</legend>
+        <div class="new-property-scroll" tabindex="0" aria-label="Available property sheets">
+          <table>
+            <thead>
+              <tr><th scope="col">Property</th><th scope="col">Samples</th><th scope="col">Spectra</th>
+                <th scope="col">Transform</th><th scope="col">Units</th><th scope="col">CO₂ band</th></tr>
+            </thead>
+            <tbody id="new-property-rows"></tbody>
+          </table>
+        </div>
+        <div class="new-property-actions">
+          <button type="button" id="new-select-all" disabled>Select all</button>
+          <button type="button" id="new-unselect-all" disabled>Unselect all</button>
+        </div>
+      </fieldset>
+      <div id="new-status" role="status" aria-live="polite"></div>
+      <div class="confirm-actions">
+        <button type="button" id="new-cancel">Cancel</button>
+        <button type="submit" id="new-inspect">Check inputs</button>
+        <button type="button" id="new-create" class="primary" disabled>Create session</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="session-dialog" aria-labelledby="session-dialog-title">
+    <form method="dialog">
+      <h2 id="session-dialog-title"></h2>
+      <p id="session-dialog-help"></p>
+      <label class="path-field" for="session-path">Local path</label>
+      <div class="path-field-row">
+        <input id="session-path" type="text" required spellcheck="false" autocomplete="off">
+        <button type="button" id="session-browse" hidden aria-label="Browse for session.json">Browse…</button>
+      </div>
+      <p id="session-browse-status" role="status" hidden></p>
+      <div class="confirm-actions">
+        <button id="session-dialog-cancel" value="cancel" formnovalidate>Cancel</button>
+        <button id="session-dialog-action" class="primary" value="confirm"></button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="confirm" aria-labelledby="confirm-title">
+    <form method="dialog">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-summary"></p>
+      <ul id="confirm-files"></ul>
+      <p id="confirm-note"></p>
+      <div class="confirm-actions">
+        <button value="cancel" autofocus>Cancel</button>
+        <button id="confirm-action" class="primary" value="confirm">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+</div>

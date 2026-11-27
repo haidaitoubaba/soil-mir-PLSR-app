@@ -9,8 +9,9 @@ import streamlit as st
 # Material Symbols are shipped by Streamlit, not fetched from an external CDN.
 PAGES = (
     ("home", "Home", None, "home"),
-    ("data", "Data", "pages/1_Data.py", "database"),
     ("qc", "Spectral QC", "pages/1_Spectral_QC.py", "document_scanner"),
+    ("cleanup", "Cleanup", "pages/1_Cleanup.py", "cleaning_services"),
+    ("data", "Modeling Data", "pages/1_Data.py", "database"),
     ("configuration", "Configuration", "pages/2_Configuration.py", "tune"),
     ("run", "Run", "pages/3_Run.py", "play_circle"),
     ("results", "Results", "pages/4_Results.py", "monitoring"),
@@ -85,8 +86,10 @@ def render_sidebar(home):
         st.markdown(f"### {material('eco')} Soil MIR PLSR")
         st.caption("Workspace")
         for identifier, title, page, icon in pages:
-            if identifier == "history":
+            if identifier in ("cleanup", "predict"):
                 st.divider()
+            if identifier == "cleanup":
+                st.caption("Calibration")
             # Native page links handle active-page styling and routing.
             st.page_link(page, label=title, icon=material(icon),
                          help=title, use_container_width=True)

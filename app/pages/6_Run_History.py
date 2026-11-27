@@ -51,7 +51,7 @@ if browse_col.button("Browse", key="history_root_browse"):
 output_dir = remember_widget(path_col, "text_input", "Results directory",
                              key="history_root", value=root_default)
 if not output_dir.strip():
-    st.info("Choose the Results directory used on the Data page.")
+    st.info("Choose the Results directory used on the Modeling Data page.")
     st.stop()
 output_dir = str(Path(output_dir).expanduser().resolve())
 st.session_state.rc6_history_root = output_dir

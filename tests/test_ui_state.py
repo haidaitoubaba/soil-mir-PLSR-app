@@ -5,8 +5,9 @@ from soil_mir.ui_navigation import ICONS, PAGES, section_key
 
 
 def test_rc6_navigation_inventory():
-    assert len(PAGES) == 8
-    assert [p[0] for p in PAGES] == ["home", *SECTIONS]
+    section_pages = [name for name in SECTIONS if name not in {"data", "qc"}]
+    assert [p[0] for p in PAGES] == ["home", "qc", "cleanup", "data", *section_pages]
+    assert PAGES[3][1] == "Modeling Data"
     assert all(s in ICONS for sections in SECTIONS.values() for s in sections)
     assert len(SECTIONS) == 7
     assert sum(map(len, SECTIONS.values())) == 31

@@ -9,6 +9,7 @@ APP_FILES = [
     ROOT / "app" / "Home.py",
     ROOT / "app" / "pages" / "1_Data.py",
     ROOT / "app" / "pages" / "1_Spectral_QC.py",
+    ROOT / "app" / "pages" / "1_Cleanup.py",
     ROOT / "app" / "pages" / "2_Configuration.py",
     ROOT / "app" / "pages" / "3_Run.py",
     ROOT / "app" / "pages" / "4_Results.py",

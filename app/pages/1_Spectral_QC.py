@@ -108,23 +108,26 @@ if section == "Setup":
     st.subheader("Spectral data source")
     a, b = st.columns(2)
     mode = source_mode(state)
-    tile_button(a, "Linked to Data", "link", key="rc7_qc_linked",
+    tile_button(a, "Linked to Modeling Data", "link", key="rc7_qc_linked",
                 selected=mode == "linked", on_click=choose_source, args=(state, "linked"))
     tile_button(b, "Independent", "folder_open", key="rc7_qc_independent",
                 selected=mode == "independent", on_click=choose_source, args=(state, "independent"))
     if mode == "linked":
         directory = applied_directory(state)
         st.text_input("OPUS spectra directory (linked)", value=directory, disabled=True)
-        st.caption("Linked to Data — using the inspected OPUS spectra directory.")
+        st.caption("QC uses the OPUS folder applied in Modeling Data.")
         if not directory or not Path(directory).is_dir():
-            invalidate_source(state, "The linked Data directory is unavailable.")
-            st.warning("The linked Data directory is unavailable. Re-inspect Data or "
-                       "select an independent directory.")
+            invalidate_source(state, "The linked Modeling Data directory is unavailable.")
+            st.warning(
+                "Inspect the directory again in Modeling Data or choose an independent folder."
+            )
             st.stop()
     else:
         if not applied_directory(state):
-            st.caption("Inspect Data to link a directory, or use independent QC "
-                       "without reference data.")
+            st.caption(
+                "Use Independent to check an OPUS folder. Apply inputs in Modeling Data "
+                "to link its OPUS directory."
+            )
         a, b = st.columns([5, 1])
         if b.button("Browse", key="qc_browse"):
             try:
@@ -137,7 +140,7 @@ if section == "Setup":
         directory = remember_widget(a, "text_input", "OPUS spectra directory", key="qc_dir")
         if directory.strip():
             state.rc7_qc_source_mode = "independent"
-        st.caption("Independent QC dataset — changes here do not affect Data.")
+        st.caption("Independent QC keeps its own OPUS folder and review.")
     stale = guard_source(state, directory)
     if stale:
         st.warning(f"{stale} Run QC again before reviewing, exporting or freezing.")
@@ -355,8 +358,8 @@ else:
     stale = guard_source(state, current_directory)
     if source_mode(state) == "linked" and (
             not current_directory or not Path(current_directory).is_dir()):
-        invalidate_source(state, "The linked Data directory is unavailable.")
-        stale = "The linked Data directory is unavailable."
+        invalidate_source(state, "The linked Modeling Data directory is unavailable.")
+        stale = "The linked Modeling Data directory is unavailable."
     if stale:
         st.warning(f"{stale} Previous QC results are not current. Run QC again in Setup.")
         previous = state.get("qc_config")
