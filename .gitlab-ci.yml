@@ -1,84 +1,60 @@
-include:
-  - project: "haidaitoubaba-group/ci-templates"
-    ref: "main"
-    file: "/python-app.yml"
+stages: [verify]
 
-variables:
-  CI_PYTHON_VERSION: "3.11"
-  CI_INSTALL_CMD: 'python -m pip install -e ".[test,science]"'
-  CI_LINT_PATHS: "src app tests scripts"
-  CI_STREAMLIT_APP: "app/Home.py"
-  CI_EXTRA_VALIDATE_CMD: >-
-    python -c 'import tomllib; config=tomllib.load(open("pyproject.toml","rb")); assert config["project"]["name"] == "soil-mir-app"; print("Project configuration is valid.")' &&
-    python scripts/build_mac_release.py --check-only &&
-    python scripts/build_windows_release.py --check-only &&
-    bash -n run_app.command
-  CI_MAC_BUILD_CMD: >-
-    python scripts/build_mac_release.py --label "$CI_COMMIT_TAG" --commit "$CI_COMMIT_SHA"
-  CI_MAC_VERIFY_CMD: >-
-    ls -lh dist/ &&
-    rm -rf /tmp/soil-mir-rc-test &&
-    mkdir -p /tmp/soil-mir-rc-test &&
-    tar -xzf "dist/soil-mir-app-$CI_COMMIT_TAG-mac.tar.gz" -C /tmp/soil-mir-rc-test &&
-    test -x "/tmp/soil-mir-rc-test/soil-mir-app-$CI_COMMIT_TAG/run_app.command" &&
-    echo "macOS release archive verified"
-  CI_WINDOWS_BUILD_CMD: >-
-    python scripts/build_windows_release.py --label "$CI_COMMIT_TAG" --commit "$CI_COMMIT_SHA"
-  CI_WINDOWS_VERIFY_CMD: >-
-    ls -lh dist/ &&
-    python -m zipfile -t dist/*-windows.zip
-
-
-# Keep the shared template unchanged; only this project has release credentials.
-stages:
-  - validate
-  - quality
-  - package
-  - release
-
-.release_automation:
-  stage: release
-  image: "python:$CI_PYTHON_VERSION-slim"
-  interruptible: false
-  cache: []
-  resource_group: soil-mir-release
-
-create_release_candidate:
-  extends: .release_automation
-  rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
-      when: manual
-      allow_failure: true
-  manual_confirmation: "Create a release candidate from this tested main commit?"
-  dependencies: []
-  environment:
-    name: release/tag
+windows_package_acceptance:
+  stage: verify
+  tags: [saas-windows-medium-amd64]
+  timeout: 15m
+  variables:
+    GIT_DEPTH: "5"
+    ACCEPTANCE_SHA: "14f72fdc51025aaf59e5bcea9c66f22dfc36bc92"
   script:
-    - python scripts/release_automation.py candidate
-
-promote_release_candidate:
-  extends: .release_automation
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+-rc[1-9][0-9]*$/ && $CI_COMMIT_REF_PROTECTED == "true"'
-      when: manual
-      allow_failure: true
-  manual_confirmation: "Confirm desktop and scientific acceptance, then publish the official release?"
-  dependencies: []
-  environment:
-    name: release/tag
-  script:
-    - python scripts/release_automation.py promote
-
-publish_official_release:
-  extends: .release_automation
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ && $CI_COMMIT_REF_PROTECTED == "true"'
-  needs:
-    - job: mac_rc_bundle
-      artifacts: true
-    - job: windows_rc_bundle
-      artifacts: true
-  environment:
-    name: release/publish
-  script:
-    - python scripts/release_automation.py publish
+    - |
+      $ErrorActionPreference = 'Stop'
+      $env:CI_COMMIT_TIMESTAMP = (git show -s --format=%cI $env:ACCEPTANCE_SHA)
+      if ($LASTEXITCODE -ne 0) { throw 'Cannot read the tested release commit.' }
+      python scripts/build_windows_release.py --label v0.4.0-rc1 --commit $env:ACCEPTANCE_SHA
+      if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed.' }
+      $archive = Join-Path $pwd 'dist/soil-mir-app-v0.4.0-rc1-windows.zip'
+      Get-FileHash -Algorithm SHA256 $archive | Format-List
+      $pathWithSpaces = Join-Path $pwd 'Windows package acceptance'
+      Expand-Archive -Path $archive -DestinationPath $pathWithSpaces
+      $bundle = Join-Path $pathWithSpaces 'soil-mir-app-v0.4.0-rc1'
+      $outputLog = Join-Path $pwd 'windows-launch-stdout.log'
+      $errorsLog = Join-Path $pwd 'windows-launch-stderr.log'
+      $env:PYTHONUNBUFFERED = '1'
+      $env:STREAMLIT_BROWSER_GATHER_USAGE_STATS = 'false'
+      $process = Start-Process -FilePath $env:ComSpec -ArgumentList '/d','/c','run_app.bat' -WorkingDirectory $bundle -RedirectStandardOutput $outputLog -RedirectStandardError $errorsLog -PassThru
+      try {
+        $deadline = (Get-Date).AddMinutes(10)
+        $healthy = $false
+        do {
+          $output = Get-Content -Raw -Path $outputLog
+          if ($process.HasExited -or $output -match 'could not start') { throw 'The packaged Windows launcher exited before it was ready.' }
+          if ($output -match 'App URL: (http://127\.0\.0\.1:[0-9]+)') {
+            $url = $Matches[1]
+            try {
+              $reply = Invoke-WebRequest -Uri "$url/_stcore/health" -UseBasicParsing -TimeoutSec 5
+              if ($reply.StatusCode -eq 200 -and $reply.Content.Trim() -eq 'ok') {
+                $healthy = $true
+                break
+              }
+            } catch {}
+          }
+          Start-Sleep -Seconds 2
+        } while ((Get-Date) -lt $deadline)
+        if (-not $healthy) { throw 'The packaged Windows launcher did not reach its health check.' }
+        Push-Location $bundle
+        try {
+          & '.\.venv\Scripts\python.exe' -c "from soil_mir import __version__; from streamlit.testing.v1 import AppTest; assert __version__ == '0.4.0'; app = AppTest.from_file('app/pages/1_Cleanup.py', default_timeout=60).run(); assert not app.exception, app.exception; assert app.title[0].value == 'Cleanup'; print('Windows package launched and the Cleanup page rendered')"
+          if ($LASTEXITCODE -ne 0) { throw 'Cleanup page rendering failed on Windows.' }
+        } finally {
+          Pop-Location
+        }
+      } finally {
+        & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
+        Get-Content $outputLog, $errorsLog -Tail 25
+      }
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths: [windows-launch-stdout.log, windows-launch-stderr.log]
