@@ -26,23 +26,16 @@ def render_home():
     st.page_link("pages/1_Spectral_QC.py", label="Spectral QC", icon=":material/document_scanner:")
     st.caption("Compare replicate OPUS spectra without reference values or model training.")
 
-    st.subheader("Workflow")
-    cols = st.columns(6)
-    steps = [
-        ("1", "Data", "Inspect spectra, references, and choose a results folder"),
-        ("2", "Configure", "Choose properties, model search, and validation settings"),
-        ("3", "Run", "Run nested validation with cached OPUS parsing and progress"),
-        ("4", "Results", "Review outer-validation metrics and final model choices"),
-        ("5", "Predict", "Apply a saved final model to new OPUS spectra"),
-        ("6", "History", "Reopen saved run summaries and artifacts"),
-    ]
-    for col, (number, title, description) in zip(cols, steps):
-        with col:
-            st.metric(
-                f"Step {number}",
-                title,
-            )
-            st.caption(description)
+    st.subheader("Calibration")
+    cleanup, modeling_data = st.columns(2)
+    with cleanup:
+        st.page_link("pages/1_Cleanup.py", label="Cleanup", icon=":material/cleaning_services:")
+        st.caption("Review spectra and reference values before calibration.")
+    with modeling_data:
+        st.page_link("pages/1_Data.py", label="Modeling Data", icon=":material/database:")
+        st.caption("Open an existing OPUS folder and reference workbook for modeling.")
+
+    st.caption("After inspecting the modeling data, open Configuration, Run, and Results.")
 
     st.subheader("Local-first design")
     st.write(

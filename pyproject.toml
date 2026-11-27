@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "soil-mir-app"
-version = "0.3.0"
+version = "0.4.0"
 description = "Local-first UI and scientific engine for soil MIR PLSR workflows"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,8 @@ dependencies = [
   "numpy>=1.24",
   "pandas>=2.0",
   "openpyxl>=3.1",
-  "streamlit>=1.39",
+  "lxml>=5,<7",
+  "streamlit>=1.54",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,9 @@ test = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"soil_mir.cleanup" = ["workbench/*.css", "workbench/*.html", "workbench/*.mjs"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

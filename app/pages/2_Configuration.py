@@ -45,7 +45,7 @@ available_properties = st.session_state.get(
 if not available_properties:
     st.warning(
         "Inspect a spectra folder and reference workbook "
-        "on the Data page first."
+        "on the Modeling Data page first."
     )
     st.stop()
 

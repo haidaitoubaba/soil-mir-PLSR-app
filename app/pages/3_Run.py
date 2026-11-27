@@ -291,7 +291,9 @@ if st.session_state.get("rc6_configuration_dirty") and not st.session_state.get(
     st.stop()
 if (st.session_state.get("rc6_data_applied_paths") is not None and
         st.session_state.get("rc6_data_draft") != st.session_state.get("rc6_data_applied_paths")):
-    st.info("Data contains unapplied path edits. This run uses the previously applied paths.")
+    st.info(
+        "Modeling Data has unapplied path edits. This run uses the previously applied paths."
+    )
 required = [
     "soil_mir_spectra_dir",
     "soil_mir_reference_excel",
@@ -307,7 +309,7 @@ missing = [
 ]
 if missing:
     st.warning(
-        "Complete Data inspection and save Configuration first."
+        "Inspect the inputs in Modeling Data and save Configuration first."
     )
     st.stop()
 

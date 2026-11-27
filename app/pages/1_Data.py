@@ -26,7 +26,7 @@ from soil_mir.services.local_paths import (
     save_path_preferences,
 )
 
-st.title("Data")
+st.title("Modeling Data")
 st.caption(
     "Inspect local spectra and reference data before modelling."
 )
@@ -46,6 +46,11 @@ def source_identity(spectra, reference, output):
 
 section = section_navigation("data")
 if section == "Input Data":
+    pending = st.session_state.pop("cleanup_pending_handoff", None)
+    if pending is not None:
+        reset_remembered("soil_mir_spectra_input", str(pending.spectra))
+        reset_remembered("soil_mir_reference_input", str(pending.workbook))
+        st.session_state.cleanup_handoff = pending
     preferences = load_path_preferences()
 
     initial_paths = {
@@ -178,6 +183,13 @@ if section == "Input Data":
             placeholder="/path/to/soil_mir_results",
         )
 
+    transfer = st.session_state.get("cleanup_handoff")
+    from_cleanup = (
+        transfer is not None
+        and (spectra_text, reference_text) == (str(transfer.spectra), str(transfer.workbook))
+    )
+    if from_cleanup:
+        st.info("Cleanup export selected. Inspect data to apply it for modelling.")
     st.session_state.rc6_data_draft = (spectra_text, reference_text, output_text)
     if st.button(
         "Inspect data",
@@ -206,6 +218,8 @@ if section == "Input Data":
         ).expanduser()
 
         try:
+            if from_cleanup:
+                transfer.verify_workbook()
             spectra = inspect_opus_directory(
                 spectra_path
             )
@@ -326,6 +340,24 @@ if current != identity:
     st.warning("Data files changed. Inspect data again before using this overview or acceptance.")
     st.stop()
 st.caption(f"Spectra: {applied[0]} | Reference: {applied[1]} | Results: {applied[2]}")
+transfer = st.session_state.get("cleanup_handoff")
+if (
+    section == "Data Overview"
+    and transfer is not None
+    and applied[:2] == (str(transfer.spectra), str(transfer.workbook))
+):
+    st.markdown("**Properties reviewed in Cleanup**")
+    st.dataframe(
+        [
+            {
+                "Property": item.name,
+                "Retained samples": item.samples,
+                "Retained spectra": item.spectra,
+            }
+            for item in transfer.properties
+        ],
+        hide_index=True,
+    )
 properties = st.session_state.get(
     "soil_mir_properties",
     [],
